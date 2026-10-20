@@ -1,0 +1,5 @@
+name: empty
+trigger: { manual: true }
+stages: []
+outcome:
+  scorers: []

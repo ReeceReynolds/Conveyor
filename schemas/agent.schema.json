@@ -1,0 +1,301 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ReeceReynolds/Conveyor/main/schemas/agent.schema.json",
+  "$defs": {
+    "Brief": {
+      "additionalProperties": false,
+      "description": "What the agent does and what it must produce.",
+      "properties": {
+        "instructions": {
+          "description": "Path to the instructions file (the prompt), relative to the agent folder.",
+          "examples": [
+            "prompt.md"
+          ],
+          "format": "path",
+          "title": "Instructions",
+          "type": "string"
+        },
+        "input": {
+          "description": "Dotted reference to the Pydantic model the agent receives.",
+          "examples": [
+            "contracts.TechnicalRequirements"
+          ],
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+$",
+          "title": "Input",
+          "type": "string"
+        },
+        "output": {
+          "description": "Dotted reference to the Pydantic model the agent must produce.",
+          "examples": [
+            "contracts.TaskList"
+          ],
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+$",
+          "title": "Output",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instructions",
+        "input",
+        "output"
+      ],
+      "title": "Brief",
+      "type": "object"
+    },
+    "Capabilities": {
+      "additionalProperties": false,
+      "description": "What the agent can use: a model profile and a toolkit.",
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/ModelProfile",
+          "description": "The model profile."
+        },
+        "tools": {
+          "default": [],
+          "description": "Tools the agent may call.",
+          "items": {
+            "pattern": "^[a-z0-9_]+(?:[.-][a-z0-9_]+)*$",
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "permissions": {
+          "$ref": "#/$defs/Permissions",
+          "default": {
+            "network": false,
+            "secrets": []
+          },
+          "description": "Network and secret access. Denied unless declared."
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "Capabilities",
+      "type": "object"
+    },
+    "ModelProfile": {
+      "additionalProperties": false,
+      "description": "The model an agent uses and the settings it is called with.",
+      "properties": {
+        "provider": {
+          "description": "Model provider, such as 'openrouter', 'anthropic' or 'openai'.",
+          "examples": [
+            "openrouter"
+          ],
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Provider",
+          "type": "string"
+        },
+        "id": {
+          "description": "Model identifier as the provider names it.",
+          "examples": [
+            "anthropic/claude-sonnet"
+          ],
+          "pattern": "^[A-Za-z0-9]\\S*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sampling temperature. Omit for the provider default.",
+          "title": "Temperature"
+        },
+        "top_p": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nucleus sampling probability. Omit for the provider default.",
+          "title": "Top P"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum tokens to generate per call.",
+          "title": "Max Tokens"
+        },
+        "routing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Routing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Provider routing. Only valid when `provider` is 'openrouter'."
+        }
+      },
+      "required": [
+        "provider",
+        "id"
+      ],
+      "title": "ModelProfile",
+      "type": "object"
+    },
+    "Permissions": {
+      "additionalProperties": false,
+      "description": "What the runtime lets the agent reach. Anything not declared is unavailable.",
+      "properties": {
+        "network": {
+          "default": false,
+          "description": "Whether the agent may use the network.",
+          "title": "Network",
+          "type": "boolean"
+        },
+        "secrets": {
+          "default": [],
+          "description": "Names of environment variables the agent may read. Never their values.",
+          "examples": [
+            [
+              "GITHUB_TOKEN"
+            ]
+          ],
+          "items": {
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Secrets",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "title": "Permissions",
+      "type": "object"
+    },
+    "QualityGate": {
+      "additionalProperties": false,
+      "description": "What good looks like: the eval suite and the bar the agent's output must clear.",
+      "properties": {
+        "suite": {
+          "description": "Path to the eval suite, relative to the agent folder.",
+          "examples": [
+            "evals"
+          ],
+          "format": "path",
+          "title": "Suite",
+          "type": "string"
+        },
+        "min_pass_rate": {
+          "description": "Fraction of eval cases that must pass, from 0 to 1.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Min Pass Rate",
+          "type": "number"
+        },
+        "repeats": {
+          "default": 1,
+          "description": "How many times each eval case is run.",
+          "minimum": 1,
+          "title": "Repeats",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "suite",
+        "min_pass_rate"
+      ],
+      "title": "QualityGate",
+      "type": "object"
+    },
+    "Routing": {
+      "additionalProperties": false,
+      "description": "OpenRouter provider routing, to keep eval and baseline runs on the same upstreams.",
+      "properties": {
+        "only": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Upstream providers OpenRouter may use. Omit to allow any.",
+          "examples": [
+            [
+              "anthropic"
+            ]
+          ],
+          "title": "Only"
+        },
+        "allow_fallbacks": {
+          "default": true,
+          "description": "Whether OpenRouter may fall back to providers outside `only`.",
+          "title": "Allow Fallbacks",
+          "type": "boolean"
+        }
+      },
+      "title": "Routing",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A reusable worker, versioned as a single unit. Describes `agent.yaml`.",
+  "properties": {
+    "name": {
+      "description": "The agent's name. Must match its folder name.",
+      "examples": [
+        "task-planner"
+      ],
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "brief": {
+      "$ref": "#/$defs/Brief",
+      "description": "Instructions and contracts."
+    },
+    "capabilities": {
+      "$ref": "#/$defs/Capabilities",
+      "description": "Model profile and toolkit."
+    },
+    "quality_gate": {
+      "$ref": "#/$defs/QualityGate",
+      "description": "Eval suite and thresholds."
+    }
+  },
+  "required": [
+    "name",
+    "brief",
+    "capabilities",
+    "quality_gate"
+  ],
+  "title": "Agent",
+  "type": "object"
+}

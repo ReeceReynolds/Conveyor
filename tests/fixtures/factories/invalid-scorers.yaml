@@ -1,0 +1,13 @@
+name: scoring
+trigger: { manual: true }
+stages:
+  - id: only
+    operation: run-tests
+outcome:
+  scorers:
+    - tests_pass
+    - scorers.pr_approved
+    - scorers.pr_approved
+    - { human_review: { scale: 5-1 } }
+    - { human_review: { optional: true } }
+    - 3

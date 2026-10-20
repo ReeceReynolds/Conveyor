@@ -1,0 +1,8 @@
+name: tiny
+trigger:
+  events: [push, "two words", push]
+stages:
+  - id: only
+    operation: run-tests
+outcome:
+  scorers: [scorers.tests_pass]

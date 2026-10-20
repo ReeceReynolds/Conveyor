@@ -1,0 +1,8 @@
+name: planner
+brief: { instructions: prompt.md, input: contracts.In, output: contracts.Out }
+capabilities:
+  model:
+    provider: anthropic
+    id: claude-sonnet
+    routing: { only: [anthropic] }
+quality_gate: { suite: evals, min_pass_rate: 0.5 }

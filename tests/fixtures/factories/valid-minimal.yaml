@@ -1,0 +1,7 @@
+name: tiny
+trigger: { manual: true }
+stages:
+  - id: only
+    operation: run-tests
+outcome:
+  scorers: [scorers.tests_pass]

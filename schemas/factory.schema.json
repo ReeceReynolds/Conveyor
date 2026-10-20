@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ReeceReynolds/Conveyor/main/schemas/factory.schema.json",
+  "$defs": {
+    "AgentStage": {
+      "additionalProperties": false,
+      "description": "A stage worked by an agent.",
+      "properties": {
+        "id": {
+          "description": "Unique id of the stage within the factory.",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "on_reject": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OnReject"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rework loop taken when this stage rejects its input."
+        },
+        "agent": {
+          "description": "Name of the agent, resolved to the folder agents/<name>/.",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agent"
+      ],
+      "title": "AgentStage",
+      "type": "object"
+    },
+    "HumanGateStage": {
+      "additionalProperties": false,
+      "description": "A stage where a person approves or rejects the work.",
+      "properties": {
+        "id": {
+          "description": "Unique id of the stage within the factory.",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "on_reject": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OnReject"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rework loop taken when this stage rejects its input."
+        },
+        "human_gate": {
+          "const": true,
+          "description": "Marks the stage as a human gate.",
+          "title": "Human Gate",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "human_gate"
+      ],
+      "title": "HumanGateStage",
+      "type": "object"
+    },
+    "HumanReview": {
+      "additionalProperties": false,
+      "description": "A score given by a person reviewing the run's output.",
+      "properties": {
+        "scale": {
+          "description": "Inclusive rating scale, such as '1-5'.",
+          "pattern": "^(\\d+)-(\\d+)$",
+          "title": "Scale",
+          "type": "string"
+        },
+        "optional": {
+          "default": false,
+          "description": "Whether a run can be complete without this score.",
+          "title": "Optional",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "scale"
+      ],
+      "title": "HumanReview",
+      "type": "object"
+    },
+    "HumanReviewScorer": {
+      "additionalProperties": false,
+      "description": "An outcome scorer that asks a person for a rating.",
+      "properties": {
+        "human_review": {
+          "$ref": "#/$defs/HumanReview",
+          "description": "How the person rates the outcome."
+        }
+      },
+      "required": [
+        "human_review"
+      ],
+      "title": "HumanReviewScorer",
+      "type": "object"
+    },
+    "OnReject": {
+      "additionalProperties": false,
+      "description": "A bounded rework loop: where rejected work goes and when to stop retrying.",
+      "properties": {
+        "return_to": {
+          "description": "Id of an earlier stage that receives the rejected work.",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Return To",
+          "type": "string"
+        },
+        "max_iterations": {
+          "description": "How many times work may be returned before the run escalates.",
+          "minimum": 1,
+          "title": "Max Iterations",
+          "type": "integer"
+        },
+        "then": {
+          "const": "escalate",
+          "default": "escalate",
+          "description": "What happens when the iterations run out.",
+          "title": "Then",
+          "type": "string"
+        }
+      },
+      "required": [
+        "return_to",
+        "max_iterations"
+      ],
+      "title": "OnReject",
+      "type": "object"
+    },
+    "OperationStage": {
+      "additionalProperties": false,
+      "description": "A deterministic step, such as fetching a file or running tests.",
+      "properties": {
+        "id": {
+          "description": "Unique id of the stage within the factory.",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "on_reject": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OnReject"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rework loop taken when this stage rejects its input."
+        },
+        "operation": {
+          "description": "Name of the operation to run.",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "operation"
+      ],
+      "title": "OperationStage",
+      "type": "object"
+    },
+    "Outcome": {
+      "additionalProperties": false,
+      "description": "How the factory owner scores what a run produced.",
+      "properties": {
+        "scorers": {
+          "description": "Outcome scorers, applied to every run.",
+          "items": {
+            "oneOf": [
+              {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+$",
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/HumanReviewScorer"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Scorers",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "scorers"
+      ],
+      "title": "Outcome",
+      "type": "object"
+    },
+    "Trigger": {
+      "additionalProperties": false,
+      "description": "What starts the factory. At least one start must be enabled.",
+      "properties": {
+        "manual": {
+          "default": false,
+          "description": "Whether a person can start a run.",
+          "title": "Manual",
+          "type": "boolean"
+        },
+        "events": {
+          "default": [],
+          "description": "External events that start a run.",
+          "examples": [
+            [
+              "github.issue.labelled:ready-for-build"
+            ]
+          ],
+          "items": {
+            "pattern": "^[A-Za-z0-9]\\S*$",
+            "type": "string"
+          },
+          "title": "Events",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "title": "Trigger",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "An ordered process of stages with triggers, rework loops and an outcome definition.",
+  "properties": {
+    "name": {
+      "description": "The factory's name.",
+      "examples": [
+        "prd-to-pr"
+      ],
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "trigger": {
+      "$ref": "#/$defs/Trigger",
+      "description": "What starts a run."
+    },
+    "stages": {
+      "description": "The stages, in order.",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/AgentStage"
+          },
+          {
+            "$ref": "#/$defs/OperationStage"
+          },
+          {
+            "$ref": "#/$defs/HumanGateStage"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Stages",
+      "type": "array"
+    },
+    "outcome": {
+      "$ref": "#/$defs/Outcome",
+      "description": "How each run's output is scored."
+    }
+  },
+  "required": [
+    "name",
+    "trigger",
+    "stages",
+    "outcome"
+  ],
+  "title": "Factory",
+  "type": "object"
+}

@@ -1,0 +1,15 @@
+name: pipeline
+trigger: { manual: true }
+stages:
+  - id: first
+    agent: good
+  - id: again
+    agent: good
+  - id: missing
+    agent: ghost
+  - id: wrong-name
+    agent: misnamed
+  - id: gate
+    human_gate: true
+outcome:
+  scorers: [scorers.tests_pass]

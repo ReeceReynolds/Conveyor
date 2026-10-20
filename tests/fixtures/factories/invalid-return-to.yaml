@@ -1,0 +1,14 @@
+name: loops
+trigger: { manual: true }
+stages:
+  - id: implement
+    agent: implementer
+    on_reject: { return_to: review, max_iterations: 2 }
+  - id: review
+    agent: code-reviewer
+    on_reject: { return_to: review, max_iterations: 0, then: retry }
+  - id: approve
+    human_gate: true
+    on_reject: { return_to: deploy, max_iterations: 1 }
+outcome:
+  scorers: [scorers.tests_pass]

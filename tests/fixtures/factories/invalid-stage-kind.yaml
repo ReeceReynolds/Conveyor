@@ -1,0 +1,15 @@
+name: kinds
+trigger: { manual: true }
+stages:
+  - id: both
+    agent: implementer
+    operation: run-tests
+  - id: neither
+  - just-a-string
+  - id: gate
+    human_gate: false
+  - id: Bad_Id
+    agent: Implementer
+    colour: red
+outcome:
+  scorers: [scorers.tests_pass]

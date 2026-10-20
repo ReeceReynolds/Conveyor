@@ -1,0 +1,5 @@
+name: no-evals
+brief: { instructions: prompt.md, input: contracts.In, output: contracts.Out }
+capabilities:
+  model: { provider: anthropic, id: claude-sonnet }
+quality_gate: { suite: evals, min_pass_rate: 0.5 }
