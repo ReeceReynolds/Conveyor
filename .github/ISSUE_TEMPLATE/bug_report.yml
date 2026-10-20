@@ -1,0 +1,37 @@
+name: Bug report
+description: Something in Conveyor does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the command you ran and the full output or traceback.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: A minimal factory or agent definition helps a lot.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Conveyor version
+      placeholder: python -c "import conveyor; print(conveyor.__version__)"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Python version
+    validations:
+      required: true
