@@ -1,0 +1,115 @@
+[project]
+name = "conveyor-harness"
+version = "0.0.0"
+description = "An open-source foundation layer for harness engineering: building agent-driven software factories."
+readme = "README.md"
+requires-python = ">=3.14"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Reece Reynolds" }]
+keywords = ["agents", "harness-engineering", "llm", "evals", "workflows"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/ReeceReynolds/Conveyor"
+Repository = "https://github.com/ReeceReynolds/Conveyor"
+Issues = "https://github.com/ReeceReynolds/Conveyor/issues"
+Changelog = "https://github.com/ReeceReynolds/Conveyor/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.170.5",
+    "inline-snapshot>=0.36.1",
+    "pre-commit>=4.7.0",
+    "pyright>=1.1.414",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.4,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv]
+required-version = ">=0.13"
+
+[tool.uv.workspace]
+members = ["examples/*"]
+
+[tool.uv.build-backend]
+module-name = "conveyor"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "B",     # flake8-bugbear
+    "UP",    # pyupgrade
+    "SIM",   # flake8-simplify
+    "C4",    # flake8-comprehensions
+    "RUF",   # ruff-specific
+    "N",     # pep8-naming
+    "S",     # flake8-bandit
+    "PTH",   # flake8-use-pathlib
+    "ASYNC", # flake8-async
+    "PT",    # flake8-pytest-style
+    "TRY",   # tryceratops
+    "ARG",   # flake8-unused-arguments
+    "PL",    # pylint
+    "TID",   # flake8-tidy-imports
+    "D",     # pydocstyle
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "D", "PLR2004"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.pyright]
+include = ["src", "tests", "examples"]
+pythonVersion = "3.14"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--strict-config", "-ra", "-m", "not live"]
+xfail_strict = true
+filterwarnings = ["error"]
+markers = [
+    "live: calls real model providers; excluded by default and run nightly with a spend cap",
+]
+
+[tool.coverage.run]
+source = ["conveyor"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
