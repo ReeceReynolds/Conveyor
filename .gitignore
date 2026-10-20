@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Tooling caches and reports
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Node / UI
+node_modules/
+src/conveyor/_ui/
+
+# Local Conveyor state and databases
+.conveyor/
+*.sqlite
+*.sqlite-*
+*.db
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Agent-local settings
+.claude/settings.local.json
+.claude/worktrees/
