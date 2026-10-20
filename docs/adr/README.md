@@ -12,8 +12,11 @@ To add one, copy [`0000-template.md`](0000-template.md) to the next number and a
 | [0005](0005-release-process.md) | Releases: SemVer, Conventional Commits, release-please and Trusted Publishing | Accepted |
 | [0006](0006-ui-toolchain.md) | UI toolchain: pnpm, Vite, React, TypeScript, Biome and Vitest | Accepted |
 | [0007](0007-license-and-distribution-name.md) | Apache-2.0 licence and the `conveyor-harness` distribution name | Accepted |
+| [0008](0008-contracts-and-configuration.md) | Contracts and configuration: Pydantic v2 models and JSON Schema 2020-12 | Accepted |
+| [0009](0009-yaml-library.md) | YAML parsing with ruamel.yaml | Accepted |
+| [0010](0010-cli.md) | CLI: Typer | Accepted |
 
 Still to be recorded as each is adopted: agent execution (Pydantic AI and Harness), durable
-execution (DBOS), tools (MCP), contracts and configuration, evals (Pydantic Evals),
-observability (OpenTelemetry GenAI conventions), cost tracking, storage (SQLAlchemy, Alembic,
-artifact store), CLI (Typer), API (FastAPI), workspace isolation and security.
+execution (DBOS), tools (MCP), evals (Pydantic Evals), observability (OpenTelemetry GenAI
+conventions), cost tracking, storage (SQLAlchemy, Alembic, artifact store), API (FastAPI),
+workspace isolation and security.
