@@ -6,7 +6,7 @@ the same constraint (a `pattern`, `uniqueItems`) in the JSON Schema for editor f
 
 import re
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Annotated, LiteralString
 
 from pydantic import AfterValidator, GetCoreSchemaHandler, GetJsonSchemaHandler, Strict
@@ -106,7 +106,9 @@ def _check_unique[T](items: tuple[T, ...]) -> tuple[T, ...]:
 
 
 def _check_relative_path(path: PurePosixPath) -> PurePosixPath:
-    if path.is_absolute() or ".." in path.parts:
+    # Also read the path as Windows would, where a backslash separates and `C:` names a drive.
+    windows = PureWindowsPath(str(path))
+    if path.is_absolute() or windows.drive or windows.root or ".." in windows.parts:
         raise custom_error(
             "relative_path",
             f"must be a relative path inside the folder, got {str(path)!r}",
