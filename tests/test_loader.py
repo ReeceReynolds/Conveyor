@@ -8,7 +8,13 @@ from inline_snapshot import snapshot
 
 from conveyor.model import Agent, ConfigError, Factory, Issue
 from conveyor.model.errors import format_loc
-from conveyor.model.loader import dump_yaml, parse_yaml, read_document, validate_document
+from conveyor.model.loader import (
+    MAX_VALUES,
+    dump_yaml,
+    parse_yaml,
+    read_document,
+    validate_document,
+)
 
 FILE = Path("config.yaml")
 
@@ -118,6 +124,11 @@ def test_records_key_and_value_positions() -> None:
             ),
             id="two-documents",
         ),
+        pytest.param(
+            "a: 1\nb: x\x07y\n",
+            snapshot([("2:5", "", "character U+0007 is not allowed in YAML")]),
+            id="control-character",
+        ),
     ],
 )
 def test_rejects_unsafe_or_ambiguous_yaml(text: str, expected: list[tuple[str, str, str]]) -> None:
@@ -128,6 +139,17 @@ def test_aliases_are_expanded() -> None:
     document = parse_yaml("a: &x [1, 2]\nb: *x\n", FILE)
 
     assert document.data == {"a": [1, 2], "b": [1, 2]}
+
+
+def test_alias_expansion_is_capped() -> None:
+    # Each line repeats the one before ten times: seven lines would expand to 10**6 values.
+    lines = ["a0: &a0 [1]"]
+    lines += [f"a{n}: &a{n} [{', '.join([f'*a{n - 1}'] * 10)}]" for n in range(1, 7)]
+
+    errors = _parse_errors("\n".join(lines) + "\n")
+
+    assert len(errors) == 1
+    assert errors[0][2] == f"document expands to more than {MAX_VALUES:,} values; check its aliases"
 
 
 def test_read_document_reports_unreadable_files(tmp_path: Path) -> None:

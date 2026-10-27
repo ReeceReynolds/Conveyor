@@ -16,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core import ErrorDetails
 from ruamel.yaml import YAML
 from ruamel.yaml.error import MarkedYAMLError
+from ruamel.yaml.reader import ReaderError
 
 from conveyor.model.agent import Agent
 from conveyor.model.base import ConfigModel, Loc, RuleViolation
@@ -33,6 +34,12 @@ _MAP, _SEQ, _MERGE = f"{_CORE}map", f"{_CORE}seq", f"{_CORE}merge"
 _SCALAR_TAGS = frozenset(f"{_CORE}{name}" for name in ("str", "int", "float", "bool", "null"))
 # YAML 1.2 has no timestamp type, but ruamel resolves dates anyway; keep them as text.
 _TIMESTAMP = f"{_CORE}timestamp"
+MAX_VALUES = 100_000
+"""Most values one document may expand to.
+
+Aliases can nest, so a few lines can expand to billions of values. Real configuration is
+nowhere near this; the cap keeps a hostile or mistaken file from hanging validation.
+"""
 
 
 # ruamel.yaml's node and error attributes are unannotated, so strict type checking sees them as
@@ -75,6 +82,13 @@ class _LocatedError(Protocol):
     def problem(self) -> str | None: ...
     @property
     def problem_mark(self) -> _Mark | None: ...
+
+
+class _CharacterError(Protocol):
+    @property
+    def position(self) -> int: ...
+    @property
+    def character(self) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -162,6 +176,7 @@ class _Converter:
         self.values: dict[Loc, Position] = {}
         self.issues: list[Issue] = []
         self._ancestors: list[int] = []
+        self._count = 0
 
     def _problem(self, mark: _Mark, loc: Loc, message: str) -> None:
         position = Position.of(mark)
@@ -178,6 +193,11 @@ class _Converter:
     def convert(self, node: _Node, loc: Loc) -> object:
         """Convert `node`, found at `loc`, into plain data."""
         self.values[loc] = Position.of(node.start_mark)
+        self._count += 1
+        if self._count > MAX_VALUES:
+            message = f"document expands to more than {MAX_VALUES:,} values; check its aliases"
+            self._problem(node.start_mark, loc, message)
+            raise ConfigError(self.issues)
         if id(node) in self._ancestors:
             self._problem(node.start_mark, loc, "recursive YAML aliases are not supported")
             return None
@@ -246,6 +266,15 @@ def _located(error: MarkedYAMLError) -> _LocatedError:
     return error
 
 
+def _unprintable(error: ReaderError) -> _CharacterError:
+    return error
+
+
+def _position_at(text: str, index: int) -> Position:
+    line_start = text.rfind("\n", 0, index) + 1
+    return Position(text.count("\n", 0, index) + 1, index - line_start + 1)
+
+
 def parse_yaml(text: str, file: Path) -> Document:
     """Parse one YAML document, keeping the position of every key and value.
 
@@ -257,8 +286,9 @@ def parse_yaml(text: str, file: Path) -> Document:
         The parsed document.
 
     Raises:
-        ConfigError: If the YAML is malformed, empty, has duplicate keys, or uses explicit
-            tags, merge keys or recursive aliases.
+        ConfigError: If the YAML is malformed, empty, has duplicate keys, uses explicit
+            tags, merge keys or recursive aliases, or expands to more than `MAX_VALUES`
+            values.
     """
     yaml = _safe_yaml()
     try:
@@ -271,6 +301,13 @@ def parse_yaml(text: str, file: Path) -> Document:
             # e.g. "expected a single document in the stream" + "but found another document"
             problem = f"{error.context} {problem}"
         issue = Issue(file=file, line=position.line, column=position.column, message=problem)
+        raise ConfigError([issue]) from None
+    except ReaderError as raw_error:
+        # Raised before parsing starts, for characters YAML forbids, such as most controls.
+        error = _unprintable(raw_error)
+        position = _position_at(text, error.position)
+        message = f"character U+{error.character:04X} is not allowed in YAML"
+        issue = Issue(file=file, line=position.line, column=position.column, message=message)
         raise ConfigError([issue]) from None
     if root is None:
         raise ConfigError([Issue(file=file, line=1, column=1, message="file is empty")])

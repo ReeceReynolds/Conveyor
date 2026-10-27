@@ -52,6 +52,14 @@ def test_duplicate_scorer_mappings_are_rejected_without_a_long_repr() -> None:
     assert [error["msg"] for error in caught.value.errors()] == ["duplicate entry (same as item 0)"]
 
 
+@pytest.mark.parametrize(
+    "suite", ["..\\evals", "evals\\..\\..\\x", "\\evals", "C:evals", "C:\\evals"]
+)
+def test_relative_paths_cannot_escape_on_windows(suite: str) -> None:
+    with pytest.raises(ValidationError, match="must be a relative path inside the folder"):
+        QualityGate(suite=PurePosixPath(suite), min_pass_rate=0.5)
+
+
 @pytest.mark.parametrize("value", ["5-5", "x-y", "1-"])
 def test_rating_scale_needs_ascending_bounds(value: str) -> None:
     with pytest.raises(ValidationError, match="must be a rating scale"):
