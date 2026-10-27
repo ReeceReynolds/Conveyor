@@ -12,9 +12,32 @@ Conveyor does not ship agents. It ships the infrastructure to define a factory, 
 specialised agents that work inside it, evaluate each agent against a human-defined quality
 bar, version every change, and see exactly how those changes affect what the factory produces.
 
-**Status: pre-alpha.** The repository currently contains the tooling foundation; core
-capabilities are being built in public. See the [project overview](docs/project-overview.md)
-for the factory model, capabilities, tech stack and scope.
+**Status: pre-alpha.** Core capabilities are being built in public. See the
+[project overview](docs/project-overview.md) for the factory model, capabilities, tech stack and
+scope.
+
+## Defining a factory
+
+A factory project holds agent folders and factory files:
+
+```
+agents/<name>/agent.yaml   # Brief, Capabilities and Quality Gate
+agents/<name>/prompt.md    # instructions
+agents/<name>/evals/       # eval suite
+factories/<name>.yaml      # stages, triggers, rework loops and outcome scorers
+```
+
+Check them against the factory model; every problem is reported as `file:line:column: field:
+message`:
+
+```bash
+uv run conveyor validate examples/prd-to-pr
+```
+
+`conveyor validate` accepts an agent folder, a factory file or a project directory, and exits
+`0` when valid, `1` when there are problems and `2` on a usage error. Editors that understand
+JSON Schema can validate and autocomplete these files using [`schemas/`](schemas/); see the
+[reference factory](examples/prd-to-pr/) for a complete example.
 
 ## Development
 

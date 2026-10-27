@@ -1,0 +1,10 @@
+name: planner
+brief: { instructions: prompt.md, input: contracts.In, output: contracts.Out }
+capabilities:
+  model: { provider: anthropic, id: claude-sonnet }
+  tools: [fs-read, fs-read, "Run Shell"]
+  permissions:
+    network: "true"
+    secrets: [GITHUB_TOKEN, github_token, GITHUB_TOKEN]
+    paths: [/tmp]
+quality_gate: { suite: evals, min_pass_rate: 0.5 }

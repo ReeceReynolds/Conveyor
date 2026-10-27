@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../../../schemas/agent.schema.json
+name: requirements-analyst
+
+brief:
+  instructions: prompt.md
+  input: contracts.Prd
+  output: contracts.TechnicalRequirements
+
+capabilities:
+  model:
+    provider: openrouter
+    id: anthropic/claude-sonnet
+    temperature: 0.2
+    routing: { only: [anthropic], allow_fallbacks: false }
+  tools: []
+  permissions: { network: false, secrets: [] }
+
+quality_gate:
+  suite: evals
+  min_pass_rate: 0.9
+  repeats: 3

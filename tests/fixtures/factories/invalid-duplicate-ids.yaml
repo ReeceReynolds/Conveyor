@@ -1,0 +1,13 @@
+name: dupes
+trigger: { manual: true }
+stages:
+  - id: build
+    operation: build
+  - id: test
+    operation: run-tests
+  - id: build
+    operation: build
+  - id: test
+    human_gate: true
+outcome:
+  scorers: [scorers.tests_pass]

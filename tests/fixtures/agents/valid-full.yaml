@@ -1,0 +1,19 @@
+name: task-planner
+brief:
+  instructions: prompts/plan.md
+  input: contracts.TechnicalRequirements
+  output: contracts.TaskList
+capabilities:
+  model:
+    provider: openrouter
+    id: anthropic/claude-sonnet
+    temperature: 0.2
+    top_p: 0.95
+    max_tokens: 4096
+    routing: { only: [anthropic, amazon-bedrock], allow_fallbacks: false }
+  tools: [github.create_pull_request, fs-read]
+  permissions: { network: true, secrets: [GITHUB_TOKEN] }
+quality_gate:
+  suite: evals
+  min_pass_rate: 0.9
+  repeats: 3

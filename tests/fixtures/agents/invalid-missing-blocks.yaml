@@ -1,0 +1,3 @@
+name: planner
+brief: { instructions: prompt.md, input: contracts.In, output: contracts.Out }
+qualitygate: { suite: evals, min_pass_rate: 0.5 }

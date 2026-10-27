@@ -1,0 +1,7 @@
+name: flat
+trigger: { manual: true }
+stages:
+  - id: work
+    agent: solo
+outcome:
+  scorers: [scorers.done]

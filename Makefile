@@ -1,6 +1,6 @@
 # Single entry point for local development and CI. `make check` is the definition of done.
 .DEFAULT_GOAL := help
-.PHONY: help install format lint typecheck test ui-check check build clean
+.PHONY: help install format lint typecheck test ui-check check schemas build clean
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -30,6 +30,9 @@ ui-check: ## Lint, type-check, test and build the UI
 	pnpm -C ui run check
 
 check: lint typecheck test ui-check ## Run everything CI runs
+
+schemas: ## Regenerate the published JSON Schemas in schemas/
+	uv run python -m conveyor.model.schema schemas
 
 build: ## Build the Python sdist and wheel
 	uv build

@@ -18,7 +18,14 @@ classifiers = [
     "Topic :: Software Development",
     "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+    "pydantic>=2.14.1",
+    "ruamel-yaml>=0.19.1",
+    "typer>=0.27.3",
+]
+
+[project.scripts]
+conveyor = "conveyor.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/ReeceReynolds/Conveyor"
@@ -112,4 +119,9 @@ branch = true
 fail_under = 90
 show_missing = true
 skip_covered = true
-exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+    "if __name__ == .__main__.:",
+]

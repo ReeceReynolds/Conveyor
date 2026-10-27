@@ -1,0 +1,11 @@
+name: planner
+brief: { instructions: prompt.md, input: contracts.In, output: contracts.Out }
+capabilities:
+  model:
+    provider: Open Router
+    id: claude sonnet
+    temperature: 2.5
+    top_p: "0.5"
+    max_tokens: 0
+    seed: 7
+quality_gate: { suite: evals, min_pass_rate: 0.5 }

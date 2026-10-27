@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../../../schemas/factory.schema.json
+name: prd-to-pr
+trigger:
+  manual: true
+  events: [github.issue.labelled:ready-for-build]
+stages:
+  - id: fetch-prd
+    operation: fetch-prd
+  - id: requirements
+    agent: requirements-analyst
+  - id: tasks
+    agent: task-planner
+  - id: implement
+    agent: implementer
+  - id: validate
+    operation: run-tests
+  - id: review
+    agent: code-reviewer
+    on_reject: { return_to: implement, max_iterations: 3, then: escalate }
+  - id: approve
+    human_gate: true
+outcome:
+  scorers:
+    - scorers.tests_pass
+    - scorers.pr_approved
+    - { human_review: { scale: 1-5, optional: true } }

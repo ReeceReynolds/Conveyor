@@ -14,7 +14,10 @@ measure how changes affect the factory's output. Read
 
 ```
 src/conveyor/        Python package (import name `conveyor`, distribution `conveyor-harness`)
-tests/               pytest suite for src/conveyor
+  model/             Factory model: config models, YAML loading, checks, JSON Schema export
+  cli.py             `conveyor` command line (Typer)
+tests/               pytest suite for src/conveyor; YAML fixtures in tests/fixtures/
+schemas/             Published JSON Schemas for agent.yaml and factory files (generated)
 ui/                  React + TypeScript web interface (pnpm, Vite, Biome, Vitest)
 examples/prd-to-pr/  Reference factory (uv workspace member, not published)
 docs/                Concepts, guides and architecture decision records (docs/adr/)
@@ -32,6 +35,9 @@ Run everything from the repository root.
 | Python lint / types / tests | `make lint` / `make typecheck` / `make test` |
 | UI lint, types, tests, build | `make ui-check` |
 | Single Python test | `uv run pytest tests/test_package.py::test_name` |
+| Regenerate JSON Schemas after a model change | `make schemas` |
+| Validate agents and factories | `uv run conveyor validate <path>` |
+| Update inline snapshots | `uv run pytest --inline-snapshot=fix` |
 | Add a Python dependency | `uv add <pkg>` (or `uv add --dev <pkg>`) |
 | Add a UI dependency | `pnpm -C ui add <pkg>` |
 
@@ -63,6 +69,8 @@ Do not report work as complete if any check fails. Fix the cause; never weaken a
 - Tests that call real model providers are marked `@pytest.mark.live`; they are excluded by
   default and run nightly under a spend cap.
 - Use Hypothesis for parsers, hashing and diffing; inline-snapshot for structured outputs.
+- Configuration rules get a fixture under `tests/fixtures/` and a snapshot of the reported
+  issues. The committed `schemas/` must match the models (`make schemas`).
 
 **UI**
 - TypeScript strict; Biome is the only linter and formatter.
