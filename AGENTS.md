@@ -17,6 +17,7 @@ src/conveyor/        Python package (import name `conveyor`, distribution `conve
   model/             Factory model: config models, YAML loading, checks, JSON Schema export
   contracts/         Contract resolution: Brief references to Pydantic models and their schemas
   storage/           Local state: SQLite/Alembic database, object store, registry repository
+  registry/          Agent snapshots, content-hash version IDs and structured diffs
   cli.py             `conveyor` command line (Typer)
 tests/               pytest suite for src/conveyor; YAML fixtures in tests/fixtures/
 schemas/             Published JSON Schemas for agent.yaml and factory files (generated)
