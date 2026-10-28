@@ -16,6 +16,7 @@ measure how changes affect the factory's output. Read
 src/conveyor/        Python package (import name `conveyor`, distribution `conveyor-harness`)
   model/             Factory model: config models, YAML loading, checks, JSON Schema export
   contracts/         Contract resolution: Brief references to Pydantic models and their schemas
+  storage/           Local state: SQLite/Alembic database, object store, registry repository
   cli.py             `conveyor` command line (Typer)
 tests/               pytest suite for src/conveyor; YAML fixtures in tests/fixtures/
 schemas/             Published JSON Schemas for agent.yaml and factory files (generated)
@@ -36,6 +37,7 @@ Run everything from the repository root.
 | Python lint / types / tests | `make lint` / `make typecheck` / `make test` |
 | UI lint, types, tests, build | `make ui-check` |
 | Single Python test | `uv run pytest tests/test_package.py::test_name` |
+| Postgres storage tests (need Docker) | `uv run pytest -m postgres` |
 | Regenerate JSON Schemas after a model change | `make schemas` |
 | Validate agents and factories | `uv run conveyor validate <path>` |
 | Update inline snapshots | `uv run pytest --inline-snapshot=fix` |
