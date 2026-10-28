@@ -55,7 +55,15 @@ jobs:
           python-version: "3.14"
           enable-cache: true
       - run: uv sync --all-packages --locked
-      - run: uv run pytest -m postgres
+      - name: Run the Postgres tests
+        run: |
+          set -o pipefail
+          uv run pytest -m postgres -vv -rfE --tb=short 2>&1 | tee pytest.log
+      - name: Report failures as annotations
+        if: failure()
+        run: |
+          grep -E '^(FAILED|ERROR) ' pytest.log | head -n 20 | sed 's/^/::error title=pytest::/' || true
+          { echo '```'; tail -n 80 pytest.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   ui:
     name: UI

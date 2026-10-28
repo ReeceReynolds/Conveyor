@@ -110,6 +110,18 @@ class RegistryRepository:
         """
         if not self._objects.exists(snapshot_digest):
             raise ObjectNotFoundError(snapshot_digest)
+        # Validate everything before touching the database, so bad input is always a
+        # ValidationError rather than whichever constraint a given backend trips first.
+        draft = AgentVersionRecord(
+            agent=agent,
+            sequence=1,
+            content_id=content_id,
+            parent_sequence=None,
+            author=author,
+            message=message,
+            created_at=created_at,
+            snapshot_digest=snapshot_digest,
+        )
         with Session(self._writer) as session, session.begin():
             agent_id = _lock_agent(session, agent)
             latest = session.scalar(
@@ -117,15 +129,12 @@ class RegistryRepository:
                     AgentVersionRow.agent_id == agent_id
                 )
             )
-            record = AgentVersionRecord(
-                agent=agent,
-                sequence=1 if latest is None else latest + 1,
-                content_id=content_id,
-                parent_sequence=latest,
-                author=author,
-                message=message,
-                created_at=created_at,
-                snapshot_digest=snapshot_digest,
+            # The numbers come from the database and satisfy the record's constraints.
+            record = draft.model_copy(
+                update={
+                    "sequence": 1 if latest is None else latest + 1,
+                    "parent_sequence": latest,
+                }
             )
             session.add(
                 AgentVersionRow(

@@ -18,8 +18,10 @@ while real-model behaviour still needs regular checking.
   for structured outputs.
 - Tests that call real providers are marked **`live`** and are deselected by default
   (`-m "not live"`). They will run in a nightly workflow under a spend cap.
-- **testcontainers** runs Postgres for the storage tests (marked `postgres`), which skip when
-  Docker is unavailable and run in a dedicated Linux CI job (see [0012](0012-storage.md)).
+- **testcontainers** runs Postgres for the storage tests, marked **`postgres`**. Like `live`
+  they are deselected by default (`-m "not live and not postgres"`), so `make test` never needs
+  Docker; a dedicated Linux CI job runs them once with `-m postgres` (see
+  [0012](0012-storage.md)).
 
 ## Alternatives considered
 

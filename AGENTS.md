@@ -37,6 +37,7 @@ Run everything from the repository root.
 | Python lint / types / tests | `make lint` / `make typecheck` / `make test` |
 | UI lint, types, tests, build | `make ui-check` |
 | Single Python test | `uv run pytest tests/test_package.py::test_name` |
+| Postgres storage tests (need Docker) | `uv run pytest -m postgres` |
 | Regenerate JSON Schemas after a model change | `make schemas` |
 | Validate agents and factories | `uv run conveyor validate <path>` |
 | Update inline snapshots | `uv run pytest --inline-snapshot=fix` |

@@ -52,9 +52,14 @@ whole object or none; writing existing content is a no-op. Every read re-hashes 
 raises `CorruptObjectError` on mismatch. Digests are validated before they become paths. The
 registry refuses to record a version whose snapshot is not already stored.
 
-**Postgres** is supported through the same models and migrations and tested in CI with
-**testcontainers** (`postgres:17-alpine`) and **psycopg 3**, in a Linux-only job that fails if
-Docker is missing. Locally, without Docker, those tests skip.
+**Postgres** is supported through the same models and migrations. The repository, migration
+and drift tests are parametrised over both backends; the Postgres cases are marked `postgres`
+and use **testcontainers** (`postgres:17-alpine`) with **psycopg 3**. They are excluded from the
+default run (`make test` stays Docker-free and the suite never starts a container twice in CI)
+and run in a dedicated Linux job with `uv run pytest -m postgres`, which fails rather than skips
+if Docker is missing. Run them locally the same way; without Docker they skip, or point
+`CONVEYOR_TEST_POSTGRES_URL` at a disposable database. Coverage is measured on the default run,
+so the few Postgres-only lines show as uncovered there.
 
 ## Alternatives considered
 

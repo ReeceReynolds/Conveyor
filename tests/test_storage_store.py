@@ -9,7 +9,7 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import Engine, inspect, text
+from sqlalchemy import DateTime, Engine, bindparam, inspect, text
 from sqlalchemy.dialects import sqlite
 from sqlalchemy.exc import IntegrityError
 
@@ -82,12 +82,14 @@ def test_models_and_migrations_do_not_drift(engine: Engine) -> None:
         assert compare_metadata(context, Base.metadata) == []
 
 
-def test_migrations_downgrade_and_upgrade_again(engine: Engine, database_url: str) -> None:
+def test_migrations_downgrade_and_upgrade_again(
+    engine: Engine, database_url: str, tmp_path: Path
+) -> None:
     with engine.begin() as connection:
         command.downgrade(alembic_config(connection), "base")
     assert _tables(engine) == ["alembic_version"]
 
-    with Store.open_url(database_url, Path("unused")):
+    with Store.open_url(database_url, tmp_path / "objects"):
         pass
     assert _tables(engine) == ["agent_versions", "agents", "alembic_version"]
 
@@ -136,14 +138,14 @@ def _insert_version(engine: Engine, *, agent_id: int, sequence: int, parent: int
                 "INSERT INTO agent_versions (agent_id, sequence, content_id, parent_sequence,"
                 " author, message, created_at, snapshot_digest)"
                 " VALUES (:agent_id, :sequence, :digest, :parent, 'a', 'm', :when, :digest)"
-            ),
+            ).bindparams(bindparam("when", type_=DateTime())),
             {
                 "agent_id": agent_id,
                 "sequence": sequence,
                 "parent": parent,
                 "digest": DIGEST,
-                # Raw SQL bypasses the column type, so pass the stored (naive UTC) form.
-                "when": "2026-10-28 00:00:00.000000",
+                # The column stores naive UTC; raw SQL bypasses the UTCDateTime type.
+                "when": datetime(2026, 10, 28),
             },
         )
 
