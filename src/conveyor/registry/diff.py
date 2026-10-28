@@ -385,10 +385,18 @@ def _instructions(found: _Found, old: AgentSnapshot, new: AgentSnapshot) -> None
     found.append((Component.INSTRUCTIONS, primitive))
 
 
+def _eval_file_name(snapshot: AgentSnapshot, path: str) -> str:
+    """Name an eval file by its path in the agent folder, for a diff header."""
+    suite = snapshot.agent.quality_gate.suite
+    # A single-file suite holds one file named after itself (see `read_eval_suite`).
+    if [file.path for file in snapshot.eval_files] == [suite.name] == [path]:
+        return str(suite)
+    return f"{suite}/{path}"
+
+
 def _eval_files(found: _Found, old: AgentSnapshot, new: AgentSnapshot) -> None:
     old_files = {file.path: file for file in old.eval_files}
     new_files = {file.path: file for file in new.eval_files}
-    old_suite, new_suite = old.agent.quality_gate.suite, new.agent.quality_gate.suite
     for path in sorted(old_files.keys() | new_files.keys()):
         before, after = old_files.get(path), new_files.get(path)
         if before is None:
@@ -402,8 +410,8 @@ def _eval_files(found: _Found, old: AgentSnapshot, new: AgentSnapshot) -> None:
         diff = text_diff(
             old_text or "",
             new_text or "",
-            old_name=f"{old_suite}/{path}",
-            new_name=f"{new_suite}/{path}",
+            old_name=_eval_file_name(old, path),
+            new_name=_eval_file_name(new, path),
         )
         primitive = PrimitiveChange(
             kind=Primitive.EVAL_CASE,

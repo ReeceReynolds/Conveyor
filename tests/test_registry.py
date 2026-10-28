@@ -231,6 +231,20 @@ def test_a_single_file_eval_suite(tmp_path: Path) -> None:
     assert snapshot_.eval_files == (EvalFile.of("evals.yaml", "cases: []\n"),)
 
 
+def test_a_single_file_eval_suite_diffs_under_its_own_name(tmp_path: Path) -> None:
+    (tmp_path / "prompt.md").write_text("Go.\n")
+    (tmp_path / "evals.yaml").write_text("cases: []\n")
+    agent = _edit(BASE, {"agent.quality_gate.suite": "evals.yaml"}).agent
+    old = build_snapshot(tmp_path, agent, _schemas())
+    (tmp_path / "evals.yaml").write_text("cases: [a]\n")
+    new = build_snapshot(tmp_path, agent, _schemas())
+
+    (change,) = [change for _, _, change in diff_snapshots(old, new).changes()]
+
+    assert change.text_diff is not None
+    assert change.text_diff.unified.splitlines()[:2] == ["--- a/evals.yaml", "+++ b/evals.yaml"]
+
+
 def _layout(root: Path, files: dict[str, bytes]) -> None:
     for name, content in files.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
@@ -267,6 +281,17 @@ def test_build_snapshot_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     errors["suite is a link"] = _snapshot_error(
         _edit(BASE, {"agent.quality_gate.suite": "suite"}).agent
     )
+    (tmp_path / "implementer/linked").symlink_to(tmp_path / "implementer/evals")
+    errors["folder on the way is a link"] = _snapshot_error(
+        _edit(BASE, {"agent.brief.instructions": "linked/a.yaml"}).agent
+    )
+    errors["suite inside a linked folder"] = _snapshot_error(
+        _edit(BASE, {"agent.quality_gate.suite": "linked/a.yaml"}).agent
+    )
+    (tmp_path / "implementer/dangling.md").symlink_to(tmp_path / "nowhere.md")
+    errors["dangling link"] = _snapshot_error(
+        _edit(BASE, {"agent.brief.instructions": "dangling.md"}).agent
+    )
     (tmp_path / "implementer/evals/folder.yaml").mkdir()
     errors["instructions are a folder"] = _snapshot_error(
         _edit(BASE, {"agent.brief.instructions": "evals/folder.yaml"}).agent
@@ -291,8 +316,11 @@ def test_build_snapshot_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             "eval file not UTF-8": (
                 "implementer/evals/a.yaml: not UTF-8 text (invalid byte at offset 0)"
             ),
-            "link in suite": "implementer/evals/linked.yaml: not a regular file",
+            "link in suite": "implementer/evals/linked.yaml: symbolic links are not followed",
             "suite is a link": "implementer/suite: eval suite is a symbolic link",
+            "folder on the way is a link": "implementer/linked: symbolic links are not followed",
+            "suite inside a linked folder": "implementer/linked: symbolic links are not followed",
+            "dangling link": "implementer/dangling.md: symbolic links are not followed",
             "instructions are a folder": "implementer/evals/folder.yaml: not a regular file",
             "not representable": (
                 "implementer: cannot snapshot agent 'implementer': 1 validation error for"
