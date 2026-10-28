@@ -5,10 +5,12 @@ SQLAlchemy, not the `sqlite3` module, decides when transactions begin, so reads 
 consistent snapshot and writers can take the write lock up front with `BEGIN IMMEDIATE`.
 """
 
+import sqlite3
+import time
 from typing import Final
 
 from sqlalchemy import Connection, Engine, create_engine, event, make_url
-from sqlalchemy.engine.interfaces import DBAPIConnection
+from sqlalchemy.engine.interfaces import DBAPIConnection, DBAPICursor
 from sqlalchemy.pool import ConnectionPoolEntry
 
 from conveyor.storage.errors import UnsupportedDatabaseError
@@ -21,11 +23,13 @@ BUSY_TIMEOUT_MS: Final = 15_000
 
 _IMMEDIATE: Final = "conveyor_begin_immediate"
 
+_WAL_RETRY_SECONDS: Final = 0.01
+"""Pause between attempts to switch a new database to write-ahead logging."""
+
 _PRAGMAS: Final = (
-    "PRAGMA journal_mode=WAL",
+    f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}",
     "PRAGMA synchronous=NORMAL",
     "PRAGMA foreign_keys=ON",
-    f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}",
 )
 
 
@@ -78,8 +82,30 @@ def _configure_sqlite_connection(
     try:
         for pragma in _PRAGMAS:
             cursor.execute(pragma)
+        _enable_wal(cursor)
     finally:
         cursor.close()
+
+
+def _enable_wal(cursor: DBAPICursor) -> None:
+    """Switch the database to write-ahead logging, waiting out other connections' locks.
+
+    WAL mode is stored in the database file, so this only changes anything on a new database.
+    There, SQLite fails the switch at once with "database is locked" whenever another
+    connection holds a lock, without consulting the busy timeout. That happens whenever
+    several stores open the same new project at once, so the switch is retried for as long as
+    the busy timeout would have waited.
+    """
+    deadline = time.monotonic() + BUSY_TIMEOUT_MS / 1000
+    while True:
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError as error:
+            if "locked" not in str(error) or time.monotonic() >= deadline:
+                raise
+            time.sleep(_WAL_RETRY_SECONDS)
+        else:
+            return
 
 
 def _begin_sqlite_transaction(connection: Connection) -> None:

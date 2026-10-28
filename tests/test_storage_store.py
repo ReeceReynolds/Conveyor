@@ -1,5 +1,7 @@
 """Opening stores, migrations (including drift from the ORM models) and database settings."""
 
+import sqlite3
+import threading
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -11,9 +13,15 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import DateTime, Engine, bindparam, inspect, text
 from sqlalchemy.dialects import sqlite
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
-from conveyor.storage import STATE_DIR, IncompatibleSchemaError, Store, UnsupportedDatabaseError
+from conveyor.storage import (
+    STATE_DIR,
+    IncompatibleSchemaError,
+    Store,
+    UnsupportedDatabaseError,
+    database,
+)
 from conveyor.storage.database import BUSY_TIMEOUT_MS, connect
 from conveyor.storage.migrate import MIGRATIONS_DIR, alembic_config
 from conveyor.storage.schema import Base, UTCDateTime
@@ -129,6 +137,48 @@ def test_sqlite_connections_are_configured(tmp_path: Path) -> None:
         "busy_timeout": BUSY_TIMEOUT_MS,
         "synchronous": 1,
     }
+
+
+def _lock_new_database(path: Path) -> sqlite3.Connection:
+    """Open a new database the way a concurrent store does: holding the write lock."""
+    holder = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
+    holder.execute("BEGIN IMMEDIATE")
+    holder.execute("CREATE TABLE placeholder (x)")
+    return holder
+
+
+def test_switching_a_new_database_to_wal_waits_for_other_connections(tmp_path: Path) -> None:
+    # SQLite fails this switch at once while another connection holds a lock, ignoring the
+    # busy timeout; stores opening one new project together hit exactly that.
+    path = tmp_path / "new.db"
+    holder = _lock_new_database(path)
+    release = threading.Timer(0.1, holder.execute, ("COMMIT",))
+    release.start()
+    engine = connect(f"sqlite:///{path}")
+    try:
+        with engine.connect() as connection:
+            mode = connection.exec_driver_sql("PRAGMA journal_mode").scalar()
+    finally:
+        engine.dispose()
+        release.join()
+        holder.close()
+
+    assert mode == "wal"
+
+
+def test_switching_to_wal_gives_up_after_the_busy_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(database, "BUSY_TIMEOUT_MS", 50)
+    path = tmp_path / "held.db"
+    holder = _lock_new_database(path)
+    engine = connect(f"sqlite:///{path}")
+    try:
+        with pytest.raises(OperationalError, match="database is locked"), engine.connect():
+            pass
+    finally:
+        engine.dispose()
+        holder.close()
 
 
 def _insert_version(engine: Engine, *, agent_id: int, sequence: int, parent: int | None) -> None:
