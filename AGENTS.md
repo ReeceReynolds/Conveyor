@@ -16,6 +16,7 @@ measure how changes affect the factory's output. Read
 src/conveyor/        Python package (import name `conveyor`, distribution `conveyor-harness`)
   model/             Factory model: config models, YAML loading, checks, JSON Schema export
   contracts/         Contract resolution: Brief references to Pydantic models and their schemas
+  registry/          Agent snapshots, content-hash version IDs and structured diffs
   cli.py             `conveyor` command line (Typer)
 tests/               pytest suite for src/conveyor; YAML fixtures in tests/fixtures/
 schemas/             Published JSON Schemas for agent.yaml and factory files (generated)
