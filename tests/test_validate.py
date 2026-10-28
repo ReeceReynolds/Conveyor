@@ -6,7 +6,12 @@ import pytest
 from inline_snapshot import snapshot
 
 from conveyor.model import NothingToValidateError, validate_path
-from conveyor.model.checks import check_agent_folder, check_factory_file, project_root
+from conveyor.model.checks import (
+    agent_project_root,
+    check_agent_folder,
+    check_factory_file,
+    project_root,
+)
 from conveyor.model.errors import Issue, format_loc
 
 
@@ -194,10 +199,121 @@ def test_agent_folder_check_reports_invalid_config() -> None:
     )
 
 
+@pytest.mark.usefixtures("in_fixtures")
+def test_project_reports_unresolvable_contracts_on_their_lines() -> None:
+    report = validate_path(Path("projects/contracts"))
+
+    assert sorted(folder.name for folder in report.agents) == [
+        "broken",
+        "missing",
+        "no-schema",
+        "resolves",
+    ]
+    # `broken` also has a config problem; every problem is still reported in one pass.
+    assert _triples(report.issues) == snapshot(
+        [
+            (
+                "projects/contracts/agents/broken/agent.yaml:4:10",
+                "brief.input",
+                "cannot resolve contract 'contracts.broken.Anything': importing "
+                "'contracts.broken' raised RuntimeError: database not configured",
+            ),
+            (
+                "projects/contracts/agents/broken/agent.yaml:5:11",
+                "brief.output",
+                "cannot resolve contract 'contracts.NotAModel': 'NotAModel' is a class but "
+                "not a Pydantic model (it must subclass BaseModel)",
+            ),
+            (
+                "projects/contracts/agents/broken/agent.yaml:8:46",
+                "quality_gate.min_pass_rate",
+                "input should be less than or equal to 1",
+            ),
+            (
+                "projects/contracts/agents/missing/agent.yaml:4:10",
+                "brief.input",
+                "cannot resolve contract 'schemas.Request': no module 'schemas' in the project "
+                "(expected schemas.py or a schemas/ package)",
+            ),
+            (
+                "projects/contracts/agents/missing/agent.yaml:5:11",
+                "brief.output",
+                "cannot resolve contract 'contracts.Absent': module 'contracts' has no "
+                "attribute 'Absent'",
+            ),
+            (
+                "projects/contracts/agents/no-schema/agent.yaml:2:42",
+                "brief.input",
+                "cannot resolve contract 'contracts.hooks.Hook': no JSON Schema can be "
+                "generated for it: PydanticInvalidForJsonSchema: Cannot generate a JsonSchema "
+                "for core_schema.CallableSchema",
+            ),
+            (
+                "projects/contracts/agents/no-schema/agent.yaml:2:72",
+                "brief.output",
+                "cannot resolve contract 'contracts.value': 'value' is not a class but a "
+                "value of type 'int'",
+            ),
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    ("brief", "resolved"),
+    [
+        # A malformed reference is reported by the model, so only `output` is resolved.
+        ("{ instructions: prompt.md, input: TaskList, output: contracts.Absent }", ["output"]),
+        ("[not, a, mapping]", []),
+    ],
+)
+def test_invalid_agent_resolves_only_well_formed_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, brief: str, resolved: list[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    folder = Path("agents/a")
+    folder.mkdir(parents=True)
+    Path("contracts.py").write_text("")
+    (folder / "agent.yaml").write_text(f"name: a\nbrief: {brief}\n")
+
+    issues = check_agent_folder(folder)
+
+    assert [
+        issue.loc[1] for issue in issues if issue.message.startswith("cannot resolve contract")
+    ] == resolved
+
+
+@pytest.mark.usefixtures("in_fixtures")
+def test_standalone_agent_skips_contract_resolution() -> None:
+    # Its references name modules that exist nowhere, but there is no project to look in.
+    report = validate_path(Path("standalone/loner"))
+
+    assert report.ok, [issue.render() for issue in report.issues]
+
+
+def test_agent_project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "agents" / "a").mkdir(parents=True)
+    (tmp_path / "loose" / "b").mkdir(parents=True)
+
+    assert agent_project_root(Path("agents/a")) == tmp_path.resolve()
+    assert agent_project_root(Path("agents/a/../a")) == tmp_path.resolve()
+    assert agent_project_root(Path("loose/b")) is None
+
+
 def test_factory_check_reports_unparseable_files(tmp_path: Path) -> None:
     factory = tmp_path / "factory.yaml"
     factory.write_text("stages: [\n")
 
     issues = check_factory_file(factory)
+
+    assert [(issue.line, issue.column) for issue in issues] == [(2, 1)]
+
+
+def test_agent_check_reports_unparseable_files(tmp_path: Path) -> None:
+    folder = tmp_path / "agents" / "a"
+    folder.mkdir(parents=True)
+    (folder / "agent.yaml").write_text("brief: {\n")
+
+    issues = check_agent_folder(folder)
 
     assert [(issue.line, issue.column) for issue in issues] == [(2, 1)]

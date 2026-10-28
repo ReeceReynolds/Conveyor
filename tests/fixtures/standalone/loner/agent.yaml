@@ -1,0 +1,5 @@
+name: loner
+brief: { instructions: prompt.md, input: contracts.Nowhere, output: contracts.ToBeFound }
+capabilities:
+  model: { provider: anthropic, id: claude-sonnet }
+quality_gate: { suite: evals, min_pass_rate: 0.5 }

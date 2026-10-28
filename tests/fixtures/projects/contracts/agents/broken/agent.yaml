@@ -1,0 +1,8 @@
+name: broken
+brief:
+  instructions: prompt.md
+  input: contracts.broken.Anything
+  output: contracts.NotAModel
+capabilities:
+  model: { provider: anthropic, id: claude-sonnet }
+quality_gate: { suite: evals, min_pass_rate: 2 }
