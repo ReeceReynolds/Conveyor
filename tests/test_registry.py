@@ -8,6 +8,7 @@ import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel, JsonValue, ValidationError
 
+from conveyor.contracts import resolve_contract_schemas
 from conveyor.model import Agent, load_agent_file
 from conveyor.registry import (
     AgentDiff,
@@ -392,10 +393,40 @@ def test_short_id_rejects_malformed_ids(bad: str) -> None:
 # --- Diffs ------------------------------------------------------------------------------------
 
 
+def _reference_implementer(example: Path) -> AgentSnapshot:
+    """The reference factory's implementer, with the schemas of its real contracts."""
+    folder = example / "agents" / "implementer"
+    agent = load_agent_file(folder / "agent.yaml")
+    schemas = resolve_contract_schemas(example, [agent.brief.input, agent.brief.output])
+    return build_snapshot(folder, agent, schemas)
+
+
+def _reversed_keys(value: JsonValue) -> JsonValue:
+    if isinstance(value, dict):
+        return {key: _reversed_keys(value[key]) for key in reversed(value)}
+    if isinstance(value, list):
+        return [_reversed_keys(item) for item in value]
+    return value
+
+
+def test_real_contract_schemas_hash_the_same_in_any_key_order(example: Path) -> None:
+    # `contract_schema` keeps Pydantic's field order; the canonical form must not depend on it.
+    implementer = _reference_implementer(example)
+    data = implementer.model_dump()
+    data["input_schema"] = _reversed_keys(implementer.input_schema)
+    data["output_schema"] = _reversed_keys(implementer.output_schema)
+
+    reordered = AgentSnapshot.model_validate(data)
+
+    assert implementer.output_schema["title"] == "CodeChanges"
+    assert list(reordered.output_schema) != list(implementer.output_schema)
+    assert content_id(reordered) == content_id(implementer)
+    assert snapshot_from_bytes(canonical_bytes(implementer)) == implementer
+
+
 def test_switching_the_reference_agent_model(example: Path) -> None:
     """The milestone's acceptance sentence, on the reference factory's implementer."""
-    folder = example / "agents" / "implementer"
-    v1 = build_snapshot(folder, load_agent_file(folder / "agent.yaml"), _schemas())
+    v1 = _reference_implementer(example)
     v2 = _edit(v1, {"agent.capabilities.model.id": "openai/gpt-5"})
 
     assert _summary(v1, v2) == snapshot(
