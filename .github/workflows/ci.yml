@@ -37,6 +37,34 @@ jobs:
       - run: make typecheck
       - run: make test
 
+  postgres:
+    name: Postgres storage tests
+    # testcontainers needs Docker, which only the Linux runners provide.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Fail rather than skip if Docker is missing, so this job always proves Postgres works.
+      CONVEYOR_REQUIRE_POSTGRES: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.4"
+          python-version: "3.14"
+          enable-cache: true
+      - run: uv sync --all-packages --locked
+      - name: Run the Postgres tests
+        run: |
+          set -o pipefail
+          uv run pytest -m postgres -vv -rfE --tb=short 2>&1 | tee pytest.log
+      - name: Report failures as annotations
+        if: failure()
+        run: |
+          grep -E '^(FAILED|ERROR) ' pytest.log | head -n 20 | sed 's/^/::error title=pytest::/' || true
+          { echo '```'; tail -n 80 pytest.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   ui:
     name: UI
     runs-on: ubuntu-latest

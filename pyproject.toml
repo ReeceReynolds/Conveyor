@@ -19,8 +19,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "alembic>=1.20.1",
     "pydantic>=2.14.1",
     "ruamel-yaml>=0.19.1",
+    "sqlalchemy>=2.1.6",
     "typer>=0.27.3",
 ]
 
@@ -38,10 +40,12 @@ dev = [
     "hypothesis>=6.170.5",
     "inline-snapshot>=0.36.1",
     "pre-commit>=4.7.0",
+    "psycopg[binary]>=3.3.6",
     "pyright>=1.1.414",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.17.1",
+    "testcontainers[postgres]>=4.15.0",
 ]
 
 [build-system]
@@ -104,11 +108,12 @@ reportUnnecessaryTypeIgnoreComment = "error"
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = ["--strict-markers", "--strict-config", "-ra", "-m", "not live"]
+addopts = ["--strict-markers", "--strict-config", "-ra", "-m", "not live and not postgres"]
 xfail_strict = true
 filterwarnings = ["error"]
 markers = [
     "live: calls real model providers; excluded by default and run nightly with a spend cap",
+    "postgres: runs against Postgres in a testcontainer; excluded by default, run in CI's Postgres job",
 ]
 
 [tool.coverage.run]
