@@ -18,13 +18,14 @@ scope.
 
 ## Defining a factory
 
-A factory project holds agent folders and factory files:
+A factory project holds agent folders, factory files and the contracts agents exchange:
 
 ```
 agents/<name>/agent.yaml   # Brief, Capabilities and Quality Gate
 agents/<name>/prompt.md    # instructions
 agents/<name>/evals/       # eval suite
 factories/<name>.yaml      # stages, triggers, rework loops and outcome scorers
+contracts.py               # Pydantic models named by each Brief's input and output
 ```
 
 Check them against the factory model; every problem is reported as `file:line:column: field:
@@ -35,7 +36,10 @@ uv run conveyor validate examples/prd-to-pr
 ```
 
 `conveyor validate` accepts an agent folder, a factory file or a project directory, and exits
-`0` when valid, `1` when there are problems and `2` on a usage error. Editors that understand
+`0` when valid, `1` when there are problems and `2` on a usage error. For agents inside a
+project it also resolves each Brief's `input` and `output` (such as `contracts.TaskList`) to a
+Pydantic model in the project, which means **validating imports and runs the project's contract
+modules**: validate only projects whose code you trust. Editors that understand
 JSON Schema can validate and autocomplete these files using [`schemas/`](schemas/); see the
 [reference factory](examples/prd-to-pr/) for a complete example.
 

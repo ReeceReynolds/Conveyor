@@ -32,6 +32,9 @@ def broken_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             """
         )
     )
+    (tmp_path / "p" / "contracts.py").write_text(
+        "from pydantic import BaseModel\n\nclass In(BaseModel): ...\n\nclass Out(BaseModel): ...\n"
+    )
     factories = tmp_path / "p" / "factories"
     factories.mkdir()
     (factories / "f.yaml").write_text(

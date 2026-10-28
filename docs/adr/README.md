@@ -15,6 +15,7 @@ To add one, copy [`0000-template.md`](0000-template.md) to the next number and a
 | [0008](0008-contracts-and-configuration.md) | Contracts and configuration: Pydantic v2 models and JSON Schema 2020-12 | Accepted |
 | [0009](0009-yaml-library.md) | YAML parsing with ruamel.yaml | Accepted |
 | [0010](0010-cli.md) | CLI: Typer | Accepted |
+| [0011](0011-contract-resolution.md) | Contract resolution: dotted references, resolved in isolation at validate and publish time | Accepted |
 
 Still to be recorded as each is adopted: agent execution (Pydantic AI and Harness), durable
 execution (DBOS), tools (MCP), evals (Pydantic Evals), observability (OpenTelemetry GenAI
