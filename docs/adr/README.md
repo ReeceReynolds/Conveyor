@@ -18,6 +18,7 @@ To add one, copy [`0000-template.md`](0000-template.md) to the next number and a
 | [0011](0011-contract-resolution.md) | Contract resolution: dotted references, resolved in isolation at validate and publish time | Accepted |
 | [0012](0012-storage.md) | Storage: SQLite via SQLAlchemy 2.0 and Alembic, plus a content-addressed object store | Accepted |
 | [0013](0013-agent-version-identity.md) | Agent version identity: canonical snapshots hashed with RFC 8785 | Accepted |
+| [0014](0014-agent-ready-repository.md) | Agent-ready repository: enforce, don't instruct | Accepted |
 
 Still to be recorded as each is adopted: agent execution (Pydantic AI and Harness), durable
 execution (DBOS), tools (MCP), evals (Pydantic Evals), observability (OpenTelemetry GenAI

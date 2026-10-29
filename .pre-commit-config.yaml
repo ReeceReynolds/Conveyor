@@ -52,6 +52,12 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      - id: lint-imports
+        name: import-linter (architecture layers)
+        entry: uv run --frozen lint-imports
+        language: system
+        types: [python]
+        pass_filenames: false
       - id: biome
         name: biome
         entry: pnpm -C ui exec biome check --write .

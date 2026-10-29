@@ -9,3 +9,4 @@
 - [ ] Tests cover the change (no network calls; real-model tests are marked `live`)
 - [ ] New dependency or architectural decision has an ADR in `docs/adr/`
 - [ ] Docs and `AGENTS.md` updated if behaviour, commands or conventions changed
+- [ ] If this fixes a mistake a check could have caught, the check is added (lint rule, test or hook)
