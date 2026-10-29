@@ -225,6 +225,12 @@ def snapshot_working_copy(project_root: Path, name: str) -> AgentSnapshot:
             file cannot be snapshotted.
     """
     folder = project_root / AGENTS_DIR / check_agent_name(name)
+    # Links are refused everywhere in an agent (ADR 0013), including the folder itself and
+    # its agent.yaml: a linked folder would be validated against another project's contracts.
+    for path in (folder, folder / AGENT_FILE):
+        if path.is_symlink():
+            issue = Issue(file=path, message="symbolic links are not followed")
+            raise PublishError(name, [issue])
     if issues := check_agent_folder(folder):
         raise PublishError(name, issues)
     # The folder was valid a moment ago, but files can change in between: report the same

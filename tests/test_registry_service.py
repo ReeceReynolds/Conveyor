@@ -228,6 +228,37 @@ def test_publish_refuses_an_invalid_agent_and_stores_nothing(example_project: Pa
     assert not (example_project / STATE_DIR).exists()
 
 
+def test_publish_refuses_a_linked_agent_yaml(example_project: Path, tmp_path: Path) -> None:
+    file = _agent_file(example_project)
+    outside = tmp_path / "outside.yaml"
+    outside.write_text(file.read_text())
+    file.unlink()
+    file.symlink_to(outside)
+
+    with pytest.raises(PublishError) as raised:
+        _publish(example_project)
+
+    assert _issues(raised.value, example_project) == [
+        "agents/implementer/agent.yaml: symbolic links are not followed"
+    ]
+    assert not (example_project / STATE_DIR).exists()
+
+
+def test_publish_refuses_a_linked_agent_folder(example_project: Path, tmp_path: Path) -> None:
+    folder = example_project / "agents" / AGENT
+    elsewhere = tmp_path / "elsewhere" / AGENT
+    elsewhere.parent.mkdir()
+    folder.rename(elsewhere)
+    folder.symlink_to(elsewhere, target_is_directory=True)
+
+    with pytest.raises(PublishError) as raised:
+        _publish(example_project)
+
+    assert _issues(raised.value, example_project) == [
+        "agents/implementer: symbolic links are not followed"
+    ]
+
+
 def test_publish_reports_a_missing_agent_folder(example_project: Path) -> None:
     with pytest.raises(PublishError) as raised:
         publish(example_project, "ghost", author="ada", message="m", now=WHEN)
