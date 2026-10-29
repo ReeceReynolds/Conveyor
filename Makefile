@@ -1,6 +1,6 @@
 # Single entry point for local development and CI. `make check` is the definition of done.
 .DEFAULT_GOAL := help
-.PHONY: help install format lint typecheck test ui-check check schemas build clean
+.PHONY: help install format quick lint typecheck test ui-check check schemas build clean
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-10s %s\n", $$1, $$2}'
@@ -15,10 +15,18 @@ format: ## Auto-format and apply safe lint fixes
 	uv run ruff check --fix
 	pnpm -C ui run format
 
-lint: ## Lint Python and verify the lockfile is current
+quick: ## Fast Python loop: format check, lint, import layers, types, tests (no coverage)
+	uv run ruff format --check
+	uv run ruff check
+	uv run lint-imports
+	uv run pyright
+	uv run pytest -x -q --no-cov
+
+lint: ## Lint Python, check import layers and verify the lockfile is current
 	uv lock --check
 	uv run ruff format --check
 	uv run ruff check
+	uv run lint-imports
 
 typecheck: ## Type-check Python (strict)
 	uv run pyright

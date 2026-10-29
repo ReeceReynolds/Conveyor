@@ -36,11 +36,15 @@ Changelog = "https://github.com/ReeceReynolds/Conveyor/blob/main/CHANGELOG.md"
 [dependency-groups]
 dev = [
     "hypothesis>=6.170.5",
+    "import-linter>=2.15",
     "inline-snapshot>=0.36.1",
     "pre-commit>=4.7.0",
     "pyright>=1.1.414",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
+    "pytest-randomly>=5.0.0",
+    "pytest-socket>=0.8.1",
+    "pytest-timeout>=2.4.0",
     "ruff>=0.17.1",
 ]
 
@@ -83,28 +87,122 @@ select = [
     "PL",    # pylint
     "TID",   # flake8-tidy-imports
     "D",     # pydocstyle
+    # Rules that catch mistakes coding agents often make (ADR 0014).
+    "BLE",   # flake8-blind-except: no `except Exception`
+    "T20",   # flake8-print: no stray print()
+    "ERA",   # eradicate: no commented-out code
+    "FIX",   # flake8-fixme: no TODO/FIXME/XXX/HACK left behind
+    "DTZ",   # flake8-datetimez: timezone-aware datetimes only
+    "PGH",   # pygrep-hooks: no blanket noqa / type: ignore
+    "SLF",   # flake8-self: no private member access
+    "A",     # flake8-builtins: no shadowed builtins
+    "INP",   # flake8-no-pep420: no implicit namespace packages
+    "PIE",   # flake8-pie
+    "RET",   # flake8-return
+    "RSE",   # flake8-raise
+    "PERF",  # perflint
+    "FURB",  # refurb
+    "LOG",   # flake8-logging
+    "G",     # flake8-logging-format
+    "ISC",   # flake8-implicit-str-concat
+    "FBT",   # flake8-boolean-trap
+    "C90",   # mccabe complexity
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "D", "PLR2004"]
+# Tests: assert is the point; docstrings and magic numbers add noise; pytest finds test modules
+# without __init__.py; tests may reach into private helpers and pass booleans positionally.
+"tests/**" = ["S101", "D", "PLR2004", "INP001", "SLF001", "FBT"]
+# Typer declares boolean CLI options as boolean function parameters.
+"src/conveyor/cli.py" = ["FBT"]
+# Hook scripts are standalone executables run by Claude Code: they talk over stdout/stderr and
+# are not part of a package.
+".claude/hooks/**" = ["T20", "INP001"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"yaml".msg = "PyYAML is not a dependency. Parse YAML with ruamel.yaml via conveyor.model.loader (ADR 0009)."
+"pydantic.v1".msg = "Use Pydantic v2 APIs (ADR 0008)."
+"typing.Any".msg = "Pyright strict: model the type precisely. If truly unavoidable, add `# noqa: TID251` on that line with a comment explaining why (AGENTS.md)."
+"typing.cast".msg = "Pyright strict: model the type precisely. If truly unavoidable, add `# noqa: TID251` on that line with a comment explaining why (AGENTS.md)."
+"unittest".msg = "Use pytest (ADR 0004)."
+
 [tool.pyright]
-include = ["src", "tests", "examples"]
+include = ["src", "tests", "examples", ".claude/hooks"]
 pythonVersion = "3.14"
 typeCheckingMode = "strict"
 reportMissingTypeStubs = "error"
 reportUnnecessaryTypeIgnoreComment = "error"
+reportImplicitOverride = "error"
+reportImportCycles = "error"
+reportPropertyTypeMismatch = "error"
+reportUninitializedInstanceVariable = "error"
+# Forces rule-scoped `# pyright: ignore[rule]` comments instead of blanket `# type: ignore`.
+enableTypeIgnoreComments = false
+
+[tool.importlinter]
+root_packages = ["conveyor"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+id = "layers"
+name = "Layers: cli → registry → model | storage → contracts. Lower layers must not import higher ones; move shared code down a layer or pass it in."
+type = "layers"
+# Parenthesised layers are optional: they keep the contract valid before milestone 2 adds them.
+layers = [
+    "conveyor.cli",
+    "(conveyor.registry)",
+    "conveyor.model | (conveyor.storage)",
+    "(conveyor.contracts)",
+]
+
+[[tool.importlinter.contracts]]
+id = "typer-in-cli"
+name = "Interface libraries stay in conveyor.cli: no other conveyor package may import typer. Return data and let the CLI format it."
+type = "forbidden"
+# `conveyor.*` covers packages that do not exist yet; a named source module must exist.
+source_modules = ["conveyor.*"]
+forbidden_modules = ["typer"]
+ignore_imports = ["conveyor.cli -> typer"]
+
+[[tool.importlinter.contracts]]
+id = "database-in-storage"
+name = "Only conveyor.storage may import sqlalchemy or alembic. Add a repository function to conveyor.storage and call that instead."
+type = "forbidden"
+source_modules = ["conveyor.*"]
+forbidden_modules = ["sqlalchemy", "alembic"]
+ignore_imports = [
+    "conveyor.storage -> sqlalchemy",
+    "conveyor.storage.** -> sqlalchemy",
+    "conveyor.storage -> alembic",
+    "conveyor.storage.** -> alembic",
+]
+# conveyor.storage arrives with milestone 2; until then these ignores match nothing.
+unmatched_ignore_imports_alerting = "none"
 
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = ["--strict-markers", "--strict-config", "-ra", "-m", "not live"]
+# No network in tests (pytest-socket); a test that genuinely needs a socket opts in with
+# @pytest.mark.enable_socket. pytest-randomly shuffles the order on every run.
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    "-m",
+    "not live",
+    "--disable-socket",
+    "--allow-unix-socket",
+]
+timeout = 60
 xfail_strict = true
 filterwarnings = ["error"]
 markers = [
