@@ -1,6 +1,7 @@
 """The `conveyor agent` commands, through Typer's test runner."""
 
 import getpass
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -35,9 +36,17 @@ def _redacted(text: str, project: Path, name: str = "implementer") -> str:
     return text
 
 
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def _plain(output: str) -> str:
-    """The words of an output, without the box Rich draws around usage errors."""
-    return " ".join(output.translate(str.maketrans("", "", "│╭╮╰╯─")).split())
+    """The words of a usage error, without Rich's box and colours.
+
+    Typer forces a colour terminal when it sees `GITHUB_ACTIONS` or `FORCE_COLOR`, so CI
+    output carries ANSI escapes that local runs do not.
+    """
+    text = _ANSI_ESCAPE.sub("", output).translate(str.maketrans("", "", "│╭╮╰╯─"))
+    return " ".join(text.split())
 
 
 def _switch_model(project: Path, old: str = OLD_MODEL, new: str = NEW_MODEL) -> None:
@@ -165,7 +174,7 @@ def test_publish_needs_an_author_when_the_user_is_unknown(monkeypatch: pytest.Mo
     accepted = _agent("publish", "implementer", "-m", "initial", "--author", "ci")
 
     assert refused.exit_code == 2
-    assert "pass --author" in refused.output
+    assert "pass --author" in _plain(refused.output)
     assert accepted.exit_code == 0
 
 
@@ -445,4 +454,4 @@ def test_agent_without_a_command_shows_help() -> None:
 
     assert result.exit_code == 2
     for command in ("publish", "history", "show", "diff"):
-        assert command in result.output
+        assert command in _plain(result.output)
