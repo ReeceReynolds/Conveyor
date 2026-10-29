@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from conveyor import __version__
+from conveyor.cli_agent import agent_app
 from conveyor.model import NothingToValidateError, validate_path
 
 app = typer.Typer(
@@ -13,8 +14,10 @@ app = typer.Typer(
     help="Define, validate and run agent-driven software factories.",
     no_args_is_help=True,
     add_completion=False,
+    rich_markup_mode="markdown",
     pretty_exceptions_enable=False,
 )
+app.add_typer(agent_app)
 
 
 def _count(count: int, singular: str, plural: str) -> str:
