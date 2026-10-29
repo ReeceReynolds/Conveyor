@@ -4,6 +4,8 @@ There is no `alembic.ini` and no offline (SQL script) mode: migrations always ru
 caller's transaction, on the connection stored in `config.attributes["connection"]`.
 """
 
+# ruff: noqa: INP001 -- Alembic runs env.py by path; migrations/ is a script folder, not a package
+
 from alembic import context
 from sqlalchemy import Connection
 

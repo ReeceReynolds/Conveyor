@@ -1,8 +1,9 @@
 """Agent snapshots and diffs: building from folders, identity, and how changes are described."""
 
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, get_args
+from typing import get_args
 
 import pytest
 from inline_snapshot import snapshot
@@ -82,7 +83,7 @@ def _fixture(version: str, code_changes: JsonSchema = CODE_CHANGES_V1) -> AgentS
     return build_snapshot(folder, load_agent_file(folder / "agent.yaml"), _schemas(code_changes))
 
 
-def _edit(snapshot: AgentSnapshot, edits: dict[str, Any]) -> AgentSnapshot:
+def _edit(snapshot: AgentSnapshot, edits: Mapping[str, object]) -> AgentSnapshot:
     """Copy a snapshot with dotted-path fields replaced, validating the result."""
     data = snapshot.model_dump(mode="json")
     for path, value in edits.items():
@@ -606,7 +607,7 @@ _WITHOUT_ROUTING = {
     "agent.capabilities.model.provider": "anthropic",
     "agent.capabilities.model.routing": None,
 }
-_PHRASE_CASES: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
+_PHRASE_CASES: dict[str, tuple[Mapping[str, object], Mapping[str, object]]] = {
     "provider": ({}, _WITHOUT_ROUTING),
     "routing added": (_WITHOUT_ROUTING, {}),
     "temperature": ({}, {"agent.capabilities.model.temperature": 0.5}),

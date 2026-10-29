@@ -11,6 +11,8 @@ descriptions are part of the contract: they are published in the JSON Schema eac
 stores and are what a model reads when producing structured output.
 """
 
+# ruff: noqa: INP001 -- Conveyor imports contract modules from the project root by path (ADR 0011)
+
 from collections.abc import Iterable
 from enum import StrEnum
 from typing import Annotated, Literal, Self

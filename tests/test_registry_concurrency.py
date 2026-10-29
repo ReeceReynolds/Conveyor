@@ -44,8 +44,8 @@ def _publish_together(project: Path, barrier: Barrier, outcomes: Queue[Outcome |
                 diff_from=None if result.diff is None else result.diff.old_label,
             )
         )
-    except Exception as error:
-        # A traceback in a child process would be lost; the parent fails on any error string.
+    # A traceback in a child process would be lost; the parent fails on any error string.
+    except Exception as error:  # noqa: BLE001 -- report every failure back to the parent
         outcomes.put(f"{type(error).__name__}: {error}")
 
 

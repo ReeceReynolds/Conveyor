@@ -6,6 +6,7 @@ package: callers receive Pydantic records instead.
 """
 
 from datetime import UTC, datetime
+from typing import override
 
 from sqlalchemy import (
     CheckConstraint,
@@ -44,6 +45,7 @@ class UTCDateTime(TypeDecorator[datetime]):
     impl = DateTime(timezone=False)
     cache_ok = True
 
+    @override
     def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         """Convert an aware datetime to naive UTC for storage.
 
@@ -65,6 +67,7 @@ class UTCDateTime(TypeDecorator[datetime]):
             raise ValueError(msg)
         return value.astimezone(UTC).replace(tzinfo=None)
 
+    @override
     def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
         """Mark a stored naive UTC timestamp as UTC.
 
@@ -121,9 +124,9 @@ class AgentVersionRow(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"))
-    sequence: Mapped[int]
+    sequence: Mapped[int] = mapped_column()
     content_id: Mapped[str] = mapped_column(String(DIGEST_LENGTH), index=True)
-    parent_sequence: Mapped[int | None]
+    parent_sequence: Mapped[int | None] = mapped_column()
     author: Mapped[str] = mapped_column(Text)
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime)

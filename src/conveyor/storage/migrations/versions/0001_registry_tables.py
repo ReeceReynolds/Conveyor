@@ -5,6 +5,8 @@ Revises:
 Create Date: 2026-10-28
 """
 
+# ruff: noqa: INP001 -- Alembic loads revision scripts by path; versions/ is not a package
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa

@@ -91,7 +91,11 @@ def _empty_postgres(url: str) -> None:
         engine.dispose()
 
 
-@pytest.fixture(params=["sqlite", pytest.param("postgresql", marks=pytest.mark.postgres)])
+# Postgres runs in a container reached over TCP, so its tests opt back in to sockets.
+_POSTGRES = pytest.param("postgresql", marks=[pytest.mark.postgres, pytest.mark.enable_socket])
+
+
+@pytest.fixture(params=["sqlite", _POSTGRES])
 def database_url(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[str]:
     """The URL of an empty database, on SQLite and (when available) on Postgres."""
     if request.param == "sqlite":

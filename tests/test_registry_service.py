@@ -220,8 +220,10 @@ def test_publish_refuses_an_invalid_agent_and_stores_nothing(example_project: Pa
     assert raised.value.name == AGENT
     assert _issues(raised.value, example_project) == snapshot(
         [
-            "agents/implementer/agent.yaml:20:18: quality_gate.min_pass_rate: input should be"
-            " less than or equal to 1"
+            (
+                "agents/implementer/agent.yaml:20:18: quality_gate.min_pass_rate: input should be"
+                " less than or equal to 1"
+            )
         ]
     )
     assert str(raised.value) == raised.value.issues[0].render()
@@ -292,8 +294,10 @@ def _no_issues(_folder: Path) -> list[Issue]:
         ),
         (
             ("contracts.TaskList", "contracts.Missing"),
-            "agents/implementer/agent.yaml: brief: cannot resolve contract 'contracts.Missing':"
-            " module 'contracts' has no attribute 'Missing'",
+            (
+                "agents/implementer/agent.yaml: brief: cannot resolve contract 'contracts.Missing':"
+                " module 'contracts' has no attribute 'Missing'"
+            ),
         ),
     ],
 )

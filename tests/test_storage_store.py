@@ -241,7 +241,7 @@ def _insert_version(engine: Engine, *, agent_id: int, sequence: int, parent: int
                 "parent": parent,
                 "digest": DIGEST,
                 # The column stores naive UTC; raw SQL bypasses the UTCDateTime type.
-                "when": datetime(2026, 10, 28),
+                "when": datetime(2026, 10, 28),  # noqa: DTZ001 -- the column's naive UTC form
             },
         )
 
@@ -276,9 +276,9 @@ def test_utc_datetime_round_trips_and_refuses_naive_values() -> None:
     local = datetime(2026, 10, 28, 14, 30, tzinfo=timezone(timedelta(hours=2)))
 
     stored = column.process_bind_param(local, dialect)
-    assert stored == datetime(2026, 10, 28, 12, 30)
+    assert stored == datetime(2026, 10, 28, 12, 30)  # noqa: DTZ001 -- stored form is naive UTC
     assert column.process_result_value(stored, dialect) == local
     assert column.process_bind_param(None, dialect) is None
     assert column.process_result_value(None, dialect) is None
     with pytest.raises(ValueError, match="naive"):
-        column.process_bind_param(datetime(2026, 10, 28), dialect)
+        column.process_bind_param(datetime(2026, 10, 28), dialect)  # noqa: DTZ001 -- must be refused

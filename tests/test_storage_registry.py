@@ -134,7 +134,7 @@ def test_invalid_versions_are_rejected_without_writing_anything(store: Store) ->
         )
 
     with pytest.raises(ValidationError, match="timezone"):
-        add(created_at=datetime(2026, 10, 28))
+        add(created_at=datetime(2026, 10, 28))  # noqa: DTZ001 -- naive on purpose: it must be refused
     with pytest.raises(ValidationError, match="content_id"):
         add(content_id=content("a").upper())
     with pytest.raises(ValidationError, match="agent"):

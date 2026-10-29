@@ -216,14 +216,18 @@ def test_project_reports_unresolvable_contracts_on_their_lines() -> None:
             (
                 "projects/contracts/agents/broken/agent.yaml:4:10",
                 "brief.input",
-                "cannot resolve contract 'contracts.broken.Anything': importing "
-                "'contracts.broken' raised RuntimeError: database not configured",
+                (
+                    "cannot resolve contract 'contracts.broken.Anything': importing "
+                    "'contracts.broken' raised RuntimeError: database not configured"
+                ),
             ),
             (
                 "projects/contracts/agents/broken/agent.yaml:5:11",
                 "brief.output",
-                "cannot resolve contract 'contracts.NotAModel': 'NotAModel' is a class but "
-                "not a Pydantic model (it must subclass BaseModel)",
+                (
+                    "cannot resolve contract 'contracts.NotAModel': 'NotAModel' is a class but "
+                    "not a Pydantic model (it must subclass BaseModel)"
+                ),
             ),
             (
                 "projects/contracts/agents/broken/agent.yaml:8:46",
@@ -233,34 +237,44 @@ def test_project_reports_unresolvable_contracts_on_their_lines() -> None:
             (
                 "projects/contracts/agents/missing/agent.yaml:4:10",
                 "brief.input",
-                "cannot resolve contract 'schemas.Request': no module 'schemas' in the project "
-                "(expected schemas.py or a schemas/ package)",
+                (
+                    "cannot resolve contract 'schemas.Request': no module 'schemas' in the project "
+                    "(expected schemas.py or a schemas/ package)"
+                ),
             ),
             (
                 "projects/contracts/agents/missing/agent.yaml:5:11",
                 "brief.output",
-                "cannot resolve contract 'contracts.Absent': module 'contracts' has no "
-                "attribute 'Absent'",
+                (
+                    "cannot resolve contract 'contracts.Absent': module 'contracts' has no "
+                    "attribute 'Absent'"
+                ),
             ),
             (
                 "projects/contracts/agents/no-schema/agent.yaml:2:42",
                 "brief.input",
-                "cannot resolve contract 'contracts.hooks.Hook': no JSON Schema can be "
-                "generated for it: PydanticInvalidForJsonSchema: Cannot generate a JsonSchema "
-                "for core_schema.CallableSchema",
+                (
+                    "cannot resolve contract 'contracts.hooks.Hook': no JSON Schema can be "
+                    "generated for it: PydanticInvalidForJsonSchema: Cannot generate a JsonSchema "
+                    "for core_schema.CallableSchema"
+                ),
             ),
             (
                 "projects/contracts/agents/no-schema/agent.yaml:2:72",
                 "brief.output",
-                "cannot resolve contract 'contracts.value': 'value' is not a class but a "
-                "value of type 'int'",
+                (
+                    "cannot resolve contract 'contracts.value': 'value' is not a class but a "
+                    "value of type 'int'"
+                ),
             ),
             (
                 "projects/contracts/agents/too-wide/agent.yaml:2:42",
                 "brief.input",
-                "cannot resolve contract 'contracts.wide.Counter': its JSON Schema has a value "
-                "JSON cannot carry exactly: integer 9223372036854775807 exceeds 2**53 - 1 at "
-                "/properties/count/maximum",
+                (
+                    "cannot resolve contract 'contracts.wide.Counter': its JSON Schema has a value "
+                    "JSON cannot carry exactly: integer 9223372036854775807 exceeds 2**53 - 1 at "
+                    "/properties/count/maximum"
+                ),
             ),
         ]
     )
