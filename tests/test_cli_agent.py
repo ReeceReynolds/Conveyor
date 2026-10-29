@@ -9,8 +9,7 @@ import pytest
 from inline_snapshot import snapshot
 from typer.testing import CliRunner, Result
 
-from conveyor.cli import app
-from conveyor.cli_agent import Clock
+from conveyor.cli import Clock, app
 from conveyor.storage import STATE_DIR, Store
 
 runner = CliRunner()
@@ -143,8 +142,10 @@ def test_publish_prints_the_problems_of_an_invalid_agent(project: Path) -> None:
 
     assert result.exit_code == 1
     assert result.output.splitlines() == [
-        "agents/implementer/agent.yaml:21:12: quality_gate.repeats: input should be greater than"
-        " or equal to 1",
+        (
+            "agents/implementer/agent.yaml:21:12: quality_gate.repeats: input should be greater"
+            " than or equal to 1"
+        ),
         "agents/implementer/agent.yaml:22:1: colour: unknown field",
         "Found 2 problems in implementer; nothing published.",
     ]
