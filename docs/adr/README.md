@@ -15,6 +15,10 @@ To add one, copy [`0000-template.md`](0000-template.md) to the next number and a
 | [0008](0008-contracts-and-configuration.md) | Contracts and configuration: Pydantic v2 models and JSON Schema 2020-12 | Accepted |
 | [0009](0009-yaml-library.md) | YAML parsing with ruamel.yaml | Accepted |
 | [0010](0010-cli.md) | CLI: Typer | Accepted |
+| [0014](0014-agent-ready-repository.md) | Agent-ready repository: enforce, don't instruct | Accepted |
+
+ADRs 0011–0013 are reserved by milestone 2 ([plan](../plans/milestone-2-agent-registry.md)) and
+are added to this index when that milestone lands on `main`.
 
 Still to be recorded as each is adopted: agent execution (Pydantic AI and Harness), durable
 execution (DBOS), tools (MCP), evals (Pydantic Evals), observability (OpenTelemetry GenAI
