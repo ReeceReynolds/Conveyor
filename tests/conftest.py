@@ -1,4 +1,5 @@
 import os
+import shutil
 import socket
 from collections.abc import Iterator
 from pathlib import Path
@@ -35,6 +36,15 @@ def in_fixtures(monkeypatch: pytest.MonkeyPatch) -> Path:
 def example() -> Path:
     """The prd-to-pr reference factory, which doubles as a valid fixture."""
     return EXAMPLE
+
+
+@pytest.fixture
+def example_project(tmp_path: Path) -> Path:
+    """A private copy of the reference factory, without any local registry state."""
+    project = tmp_path / "prd-to-pr"
+    ignore = shutil.ignore_patterns(".conveyor", "__pycache__")
+    shutil.copytree(EXAMPLE, project, ignore=ignore)
+    return project
 
 
 @pytest.fixture(scope="session")
