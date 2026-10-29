@@ -77,7 +77,9 @@ def commands_for(file: Path) -> list[list[str]]:
         ]
     if file.suffix in BIOME_SUFFIXES and file.is_relative_to(UI_DIR):
         relative = file.relative_to(UI_DIR).as_posix()
-        return [["pnpm", "-C", "ui", "exec", "biome", "check", "--write", relative]]
+        # A file Biome ignores (gitignored, or excluded in biome.json) is not a problem to report.
+        biome_check = ["biome", "check", "--write", "--no-errors-on-unmatched", relative]
+        return [["pnpm", "-C", "ui", "exec", *biome_check]]
     return []
 
 

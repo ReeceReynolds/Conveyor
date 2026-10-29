@@ -14,12 +14,14 @@ from every branch, not just yours.
 Milestone branches reserve numbers before they reach `main`. Check every remote branch:
 
 ```bash
-git fetch origin main
-for b in $(git ls-remote --heads origin | awk '{print $2}' | sed 's#^refs/heads/##'); do
-  git fetch -q --depth=1 origin "$b" &&
-    echo "$b: $(git ls-tree --name-only FETCH_HEAD docs/adr/ | grep -o '^docs/adr/[0-9]\{4\}' | cut -d/ -f3 | tr '\n' ' ')"
+git fetch --quiet --prune origin '+refs/heads/*:refs/remotes/origin/*'
+for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin/); do
+  echo "$ref: $(git ls-tree --name-only "$ref" docs/adr/ | grep -o '^docs/adr/[0-9]\{4\}' | cut -d/ -f3 | tr '\n' ' ')"
 done
 ```
+
+Do not add `--depth` to that fetch: in a full clone it makes the repository shallow and cuts
+the local history.
 
 Use one more than the highest number on any branch (gaps are allowed; duplicates are not, and
 `tests/test_repository.py` fails on them). Also check `docs/plans/` for numbers a milestone

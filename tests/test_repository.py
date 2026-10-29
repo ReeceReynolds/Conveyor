@@ -5,6 +5,7 @@ failure message says how to fix the problem.
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -195,7 +196,9 @@ def test_skill_has_frontmatter(skill: Path) -> None:
     )
 
 
-def _run_hook(name: str, stdin: str) -> subprocess.CompletedProcess[str]:
+def _run_hook(
+    name: str, stdin: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 -- runs our own hook script with the test interpreter
         [sys.executable, str(HOOKS_DIR / name)],
         input=stdin,
@@ -203,7 +206,17 @@ def _run_hook(name: str, stdin: str) -> subprocess.CompletedProcess[str]:
         text=True,
         timeout=30,
         check=False,
+        env=env,
     )
+
+
+def _failing_tools(directory: Path) -> dict[str, str]:
+    """Put `uv` and `pnpm` stand-ins that always fail on PATH, so no real tool runs."""
+    for name in ("uv", "pnpm"):
+        tool = directory / name
+        tool.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        tool.chmod(0o755)
+    return {**os.environ, "PATH": str(directory)}
 
 
 def _edit(path: str) -> str:
@@ -248,3 +261,37 @@ def test_protect_files_hook_allows_everything_else(stdin: str) -> None:
 
     assert result.returncode == 0, result.stderr
     assert not result.stderr
+
+
+@pytest.mark.parametrize(
+    ("path", "command"),
+    [
+        ("src/conveyor/cli.py", "uv run --frozen ruff format"),
+        # Biome must not report a file it ignores as a problem.
+        ("ui/src/App.tsx", "biome check --write --no-errors-on-unmatched src/App.tsx"),
+    ],
+)
+def test_format_and_lint_hook_hands_problems_back(path: str, command: str, tmp_path: Path) -> None:
+    result = _run_hook("format_and_lint.py", _edit(str(ROOT / path)), _failing_tools(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    response = json.loads(result.stdout)
+    assert response["decision"] == "block"
+    assert command in response["reason"]
+
+
+@pytest.mark.parametrize(
+    "stdin",
+    [
+        _edit(str(ROOT / "docs" / "adr" / "README.md")),
+        _edit(str(ROOT / "src" / "conveyor" / "missing.py")),
+        _edit("/somewhere/else/module.py"),
+        "not json",
+        "",
+    ],
+)
+def test_format_and_lint_hook_ignores_other_files(stdin: str, tmp_path: Path) -> None:
+    result = _run_hook("format_and_lint.py", stdin, _failing_tools(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert not result.stdout

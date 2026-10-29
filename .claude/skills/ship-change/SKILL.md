@@ -12,7 +12,9 @@ description: Pre-PR checklist for getting a change merged — checks, commits, b
 - Milestone work packages branch from, and open their PR against, the milestone's integration
   branch `milestone/<slug>` (see the plan in `docs/plans/`), not `main`. Everything else
   targets `main`.
-- Before pushing: `git fetch origin <target>` and rebase onto it.
+- Before the first push: `git fetch origin <target>` and rebase onto it. Once the branch is
+  pushed, bring in the target with `git merge origin/<target>` instead; rewriting a pushed
+  branch needs a force push, which `.claude/settings.json` denies.
 
 ## 2. Checks
 
