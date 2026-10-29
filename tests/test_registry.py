@@ -1,8 +1,9 @@
 """Agent snapshots and diffs: building from folders, identity, and how changes are described."""
 
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, get_args
+from typing import get_args
 
 import pytest
 from inline_snapshot import snapshot
@@ -82,7 +83,7 @@ def _fixture(version: str, code_changes: JsonSchema = CODE_CHANGES_V1) -> AgentS
     return build_snapshot(folder, load_agent_file(folder / "agent.yaml"), _schemas(code_changes))
 
 
-def _edit(snapshot: AgentSnapshot, edits: dict[str, Any]) -> AgentSnapshot:
+def _edit(snapshot: AgentSnapshot, edits: Mapping[str, object]) -> AgentSnapshot:
     """Copy a snapshot with dotted-path fields replaced, validating the result."""
     data = snapshot.model_dump(mode="json")
     for path, value in edits.items():
@@ -300,7 +301,23 @@ def test_build_snapshot_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     data = BASE.agent.model_dump()
     data["capabilities"]["model"]["max_tokens"] = 2**60
     huge = Agent.model_validate(data)
-    errors["not representable"] = _snapshot_error(huge).splitlines()[0]
+    errors["not representable"] = _snapshot_error(huge)
+    (tmp_path / "implementer/evals/folder.yaml").rmdir()
+    (tmp_path / "implementer/evals/case\\one.yaml").write_text("x: 1\n")
+    errors["backslash in an eval file name"] = _snapshot_error(BASE.agent)
+    (tmp_path / "implementer/evals/case\\one.yaml").unlink()
+    unreadable = tmp_path / "implementer/prompt.md"
+    read_bytes = Path.read_bytes
+
+    def refuse_instructions(self: Path) -> bytes:
+        if self.resolve() == unreadable:
+            raise PermissionError(13, "Permission denied")
+        return read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", refuse_instructions)
+    errors["unreadable instructions"] = _snapshot_error(BASE.agent)
+    monkeypatch.undo()
+    monkeypatch.chdir(tmp_path)
 
     assert errors == snapshot(
         {
@@ -323,9 +340,14 @@ def test_build_snapshot_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             "dangling link": "implementer/dangling.md: symbolic links are not followed",
             "instructions are a folder": "implementer/evals/folder.yaml: not a regular file",
             "not representable": (
-                "implementer: cannot snapshot agent 'implementer': 1 validation error for"
-                " AgentSnapshot"
+                "implementer: cannot snapshot agent 'implementer': value has no canonical JSON"
+                " form: 1152921504606846976 exceeds safe integer domain for JSON floats"
             ),
+            "backslash in an eval file name": (
+                "implementer/evals/case\\one.yaml: file name 'case\\\\one.yaml' is not"
+                " portable: it must not contain a backslash"
+            ),
+            "unreadable instructions": ("implementer/prompt.md: cannot be read: Permission denied"),
         }
     )
 
@@ -389,9 +411,7 @@ def test_snapshot_from_bytes_rejects_anything_not_canonical() -> None:
             "whitespace": (
                 "not a canonical agent snapshot: JSON is not in canonical form (RFC 8785)"
             ),
-            "unsupported format": (
-                "not a canonical agent snapshot: 1 validation error for AgentSnapshot"
-            ),
+            "unsupported format": ("not a canonical agent snapshot: format: Input should be 1"),
             "default left out": "not a canonical agent snapshot: content changes when read back",
         }
     )
@@ -587,7 +607,7 @@ _WITHOUT_ROUTING = {
     "agent.capabilities.model.provider": "anthropic",
     "agent.capabilities.model.routing": None,
 }
-_PHRASE_CASES: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
+_PHRASE_CASES: dict[str, tuple[Mapping[str, object], Mapping[str, object]]] = {
     "provider": ({}, _WITHOUT_ROUTING),
     "routing added": (_WITHOUT_ROUTING, {}),
     "temperature": ({}, {"agent.capabilities.model.temperature": 0.5}),

@@ -50,6 +50,19 @@ class SnapshotError(Exception):
         super().__init__(f"{file}: {message}" if file is not None else message)
 
 
+def _summary(error: ValidationError) -> str:
+    """Describe a validation error on one line: its first problem and how many others."""
+    problems = error.errors(include_url=False)
+    first = problems[0]
+    where = ".".join(str(part) for part in first["loc"])
+    # For a validator's own ValueError, Pydantic prefixes "Value error, "; use the error itself.
+    cause: object = first.get("ctx", {}).get("error")
+    text = str(cause) if first["type"] == "value_error" and cause is not None else first["msg"]
+    message = f"{where}: {text}" if where else text
+    others = len(problems) - 1
+    return f"{message} (and {others} more)" if others else message
+
+
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
@@ -190,8 +203,11 @@ def snapshot_from_bytes(data: bytes) -> AgentSnapshot:
     """
     try:
         snapshot = AgentSnapshot.model_validate(load_canonical_json(data))
-    except (CanonicalFormError, ValidationError) as error:
+    except CanonicalFormError as error:
         message = f"not a canonical agent snapshot: {error}"
+        raise SnapshotError(message) from error
+    except ValidationError as error:
+        message = f"not a canonical agent snapshot: {_summary(error)}"
         raise SnapshotError(message) from error
     if canonical_bytes(snapshot) != data:
         # The JSON was canonical but validation changed it, e.g. by filling in a default.
@@ -214,7 +230,11 @@ def _read_text(file: Path) -> str:
     if not file.is_file():
         message = "not a regular file" if file.exists() else "file not found"
         raise SnapshotError(message, file)
-    data = file.read_bytes()
+    try:
+        data = file.read_bytes()
+    except OSError as error:
+        message = f"cannot be read: {error.strerror or error}"
+        raise SnapshotError(message, file) from error
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError as error:
@@ -253,7 +273,7 @@ def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
         message = "eval suite is a symbolic link" if suite.is_symlink() else "eval suite not found"
         raise SnapshotError(message, suite)
     if not suite.is_dir():
-        return (EvalFile.of(suite.name, _read_text(suite)),)
+        return (_eval_file(suite.name, suite),)
 
     files: list[EvalFile] = []
     for folder, dirs, names in suite.walk():
@@ -262,8 +282,19 @@ def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
         for name in names:
             if not _skipped(name, is_dir=False):
                 file = folder / name
-                files.append(EvalFile.of(file.relative_to(suite).as_posix(), _read_text(file)))
+                files.append(_eval_file(file.relative_to(suite).as_posix(), file))
     return tuple(sorted(files, key=lambda file: file.path))
+
+
+def _eval_file(path: str, file: Path) -> EvalFile:
+    """Read one eval file, refusing names that would not be the same on every platform."""
+    try:
+        _check_relative_posix(path)
+    except ValueError:
+        # A backslash is a separator on Windows, so the same checkout would name it differently.
+        message = f"file name {path!r} is not portable: it must not contain a backslash"
+        raise SnapshotError(message, file) from None
+    return EvalFile.of(path, _read_text(file))
 
 
 def _inside(folder: Path, path: PurePosixPath) -> Path:
@@ -326,5 +357,5 @@ def build_snapshot(
             eval_files=eval_files,
         )
     except ValidationError as error:
-        message = f"cannot snapshot agent {agent.name!r}: {error}"
+        message = f"cannot snapshot agent {agent.name!r}: {_summary(error)}"
         raise SnapshotError(message, folder) from error

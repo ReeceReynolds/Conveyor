@@ -1,9 +1,9 @@
 """Property tests: content IDs are stable, snapshots round-trip, and diffs see every change."""
 
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from random import Random
-from typing import Any
 
 from hypothesis import assume, given
 from hypothesis import strategies as st
@@ -115,7 +115,7 @@ def _reversed_keys(value: JsonValue) -> JsonValue:
     return value
 
 
-def _edit(snapshot: AgentSnapshot, edits: dict[str, Any]) -> AgentSnapshot:
+def _edit(snapshot: AgentSnapshot, edits: Mapping[str, object]) -> AgentSnapshot:
     data = snapshot.model_dump(mode="json")
     for path, value in edits.items():
         *parents, last = path.split(".")
@@ -168,7 +168,7 @@ def test_diff_is_empty_exactly_when_ids_match_and_never_fails_to_describe(
 
 
 _MODEL = "agent.capabilities.model"
-_MUTATIONS: list[tuple[Block, str, st.SearchStrategy[Any]]] = [
+_MUTATIONS: list[tuple[Block, str, st.SearchStrategy[object]]] = [
     (Block.BRIEF, "instructions", _texts),
     (Block.BRIEF, "agent.brief.instructions", _paths),
     (Block.BRIEF, "agent.brief.input", _refs),
