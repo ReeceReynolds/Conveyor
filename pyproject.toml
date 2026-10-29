@@ -65,6 +65,8 @@ module-name = "conveyor"
 line-length = 100
 target-version = "py314"
 src = ["src", "tests"]
+# Claude Code runs hook scripts with whatever `python3` is on the PATH, which may predate 3.14.
+per-file-target-version = { ".claude/hooks/*.py" = "py312" }
 
 [tool.ruff.lint]
 select = [
@@ -147,6 +149,8 @@ reportPropertyTypeMismatch = "error"
 reportUninitializedInstanceVariable = "error"
 # Forces rule-scoped `# pyright: ignore[rule]` comments instead of blanket `# type: ignore`.
 enableTypeIgnoreComments = false
+# Hook scripts run on the system `python3`; check them against an older standard library.
+executionEnvironments = [{ root = ".claude/hooks", pythonVersion = "3.12" }]
 
 [tool.importlinter]
 root_packages = ["conveyor"]
