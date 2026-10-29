@@ -429,6 +429,21 @@ def test_diff_exit_code(project: Path) -> None:
     assert different.output == without_flag.output
 
 
+def test_diff_exit_code_keeps_one_for_differences(project: Path) -> None:
+    # Under --exit-code, 1 means "they differ"; problems must not look like differences.
+    _agent("publish", "implementer", "-m", "initial")
+
+    unknown = _agent("diff", "implementer", "v9", "--exit-code")
+    only_one = _agent("diff", "implementer", "--exit-code")
+    (project / STATE_DIR / "conveyor.db").write_text("not a database\n")
+    unreadable = _agent("diff", "implementer", "--working", "--exit-code")
+    still_one = _agent("diff", "implementer", "--working")
+
+    assert (unknown.exit_code, only_one.exit_code, unreadable.exit_code) == (2, 2, 2)
+    assert still_one.exit_code == 1
+    assert "has no version v9" in unknown.output
+
+
 def test_diff_with_a_single_version_suggests_working(project: Path) -> None:
     _agent("publish", "implementer", "-m", "initial")
 

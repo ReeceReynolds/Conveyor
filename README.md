@@ -89,8 +89,10 @@ lists every change, with line-by-line diffs of instructions and eval files.
 A version is referred to as `latest`, `vN` or at least four hex characters of its content ID.
 Every command takes `--project PATH` (default: the current directory). Publishing refuses an
 invalid agent and prints its problems as `conveyor validate` does; like `validate`, it imports
-the project's contract modules. `diff` exits `0` whether or not there are differences unless
-`--exit-code` is given; elsewhere `1` means problems or an unknown version and `2` a usage error.
+the project's contract modules. Commands exit `1` for problems (an invalid agent, an unknown
+version, an unreadable registry) and `2` for a usage error. `diff` exits `0` whether or not
+there are differences, unless `--exit-code` is given: then, as with `git diff --exit-code`, `1`
+means the versions differ and problems exit with `2`.
 
 ## Development
 

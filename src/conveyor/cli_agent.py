@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, Final, NoReturn
 
 import typer
 
@@ -121,18 +121,26 @@ def _bytes(text: str) -> str:
     return _count(len(text.encode()), "byte", "bytes")
 
 
-def _fail(message: str) -> NoReturn:
+FAILED: Final = 1
+"""Exit code for problems: an invalid agent, an unknown version, an unreadable registry."""
+
+FAILED_WITH_EXIT_CODE: Final = 2
+"""Exit code for those problems under `diff --exit-code`, where 1 means "differences"."""
+
+
+def _fail(message: str, code: int = FAILED) -> NoReturn:
     typer.echo(message, err=True)
-    raise typer.Exit(code=1)
+    raise typer.Exit(code=code)
 
 
 @contextmanager
-def _reporting(project: Path, outcome: str = "nothing done") -> Generator[None]:
+def _reporting(project: Path, outcome: str = "nothing done", code: int = FAILED) -> Generator[None]:
     """Turn the service's errors into messages and exit codes.
 
     Args:
         project: The project folder, already checked.
         outcome: What an invalid working copy means for the command, e.g. `nothing published`.
+        code: The exit code for problems (usage errors always exit 2).
 
     Yields:
         Nothing; the block runs inside.
@@ -145,13 +153,13 @@ def _reporting(project: Path, outcome: str = "nothing done") -> Generator[None]:
             typer.echo(issue.render())
         problems = _count(len(error.issues), "problem", "problems")
         typer.echo(f"Found {problems} in {error.name}; {outcome}.")
-        raise typer.Exit(code=1) from None
+        raise typer.Exit(code=code) from None
     except VersionRefError as error:
         if error.problem is RefProblem.MALFORMED:
             raise typer.BadParameter(str(error)) from None
-        _fail(str(error))
+        _fail(str(error), code)
     except (StorageError, SnapshotError) as error:
-        _fail(f"The registry in {project} cannot be read: {error}")
+        _fail(f"The registry in {project} cannot be read: {error}", code)
 
 
 def _version(record: AgentVersionRecord) -> str:
@@ -316,20 +324,29 @@ def diff_command(  # noqa: PLR0913
     ] = False,
     exit_code: Annotated[
         bool,
-        typer.Option("--exit-code", help="Exit with 1 if there are differences, else 0."),
+        typer.Option(
+            "--exit-code",
+            help="Exit with 1 if there are differences and 0 if not, like git diff --exit-code;"
+            " problems then exit with 2.",
+        ),
     ] = False,
     project: ProjectOption = Path(),
 ) -> None:
     """Compare two versions of an agent, or a version with the working copy.
 
     With no versions given, compares the version before the latest with the latest. Exits 0
-    whether or not there are differences, unless --exit-code is given.
+    whether or not there are differences, unless --exit-code is given: then 1 means there are
+    differences, and problems (an unknown version, an unreadable registry) exit with 2.
     """
     if working and new_ref is not None:
         message = "give either TO or --working, not both"
         raise typer.BadParameter(message, param_hint="TO")
     project = _project(project)
-    with _reporting(project, "cannot compare the working copy"), Store.open(project) as store:
+    failed = FAILED_WITH_EXIT_CODE if exit_code else FAILED
+    with (
+        _reporting(project, "cannot compare the working copy", failed),
+        Store.open(project) as store,
+    ):
         old: Side
         new: Side
         if working:
@@ -340,7 +357,8 @@ def diff_command(  # noqa: PLR0913
                 _fail(
                     f"{name} has only one version, v{new.sequence} "
                     f"({short_id(new.content_id)}); use --working to compare it with "
-                    f"agents/{name}/ on disk"
+                    f"agents/{name}/ on disk",
+                    failed,
                 )
             old = previous
         else:
