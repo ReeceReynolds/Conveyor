@@ -7,13 +7,16 @@ consistent snapshot and writers can take the write lock up front with `BEGIN IMM
 
 import sqlite3
 import time
+from collections.abc import Generator
+from contextlib import contextmanager
 from typing import Final
 
 from sqlalchemy import Connection, Engine, create_engine, event, make_url
 from sqlalchemy.engine.interfaces import DBAPIConnection, DBAPICursor
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import ConnectionPoolEntry
 
-from conveyor.storage.errors import UnsupportedDatabaseError
+from conveyor.storage.errors import DatabaseUnavailableError, UnsupportedDatabaseError
 
 SUPPORTED_BACKENDS: Final = frozenset({"sqlite", "postgresql"})
 """Database backends Conveyor runs on: SQLite locally, Postgres tested in CI."""
@@ -54,6 +57,28 @@ def connect(url: str) -> Engine:
         event.listen(engine, "connect", _configure_sqlite_connection)
         event.listen(engine, "begin", _begin_sqlite_transaction)
     return engine
+
+
+@contextmanager
+def database_errors() -> Generator[None]:
+    """Report errors from the database driver as `DatabaseUnavailableError`.
+
+    A file that is not a database, a lock held past the busy timeout or an unreachable server
+    otherwise surface as SQLAlchemy's own exceptions, with a multi-line message and a link.
+
+    Yields:
+        Nothing; wrap the database work in a `with` block.
+
+    Raises:
+        DatabaseUnavailableError: If the block raises a driver error.
+    """
+    try:
+        yield
+    except DBAPIError as error:
+        detail = str(error.orig).strip().splitlines()
+        raise DatabaseUnavailableError(
+            detail[0] if detail else type(error.orig).__name__
+        ) from error
 
 
 def writer(engine: Engine) -> Engine:

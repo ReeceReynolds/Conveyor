@@ -7,6 +7,8 @@ never updated or deleted.
 """
 
 import re
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Final
 
@@ -15,7 +17,7 @@ from sqlalchemy import Engine, Select, select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
-from conveyor.storage.database import writer
+from conveyor.storage.database import database_errors, writer
 from conveyor.storage.errors import (
     AmbiguousVersionError,
     InvalidPrefixError,
@@ -189,7 +191,7 @@ class RegistryRepository:
             created_at=created_at,
             snapshot_digest=snapshot_digest,
         )
-        with Session(self._writer) as session, session.begin():
+        with _session(self._writer) as session, session.begin():
             agent_id = _lock_agent(session, agent)
             # Read under the lock: no other publisher can record a version until this
             # transaction ends, so the latest version cannot change between here and the insert.
@@ -232,7 +234,7 @@ class RegistryRepository:
         Returns:
             The newest version, or `None` if the agent has never been published.
         """
-        with Session(self._engine) as session:
+        with _session(self._engine) as session:
             row = session.scalars(
                 _versions_of(agent).order_by(AgentVersionRow.sequence.desc()).limit(1)
             ).first()
@@ -251,7 +253,7 @@ class RegistryRepository:
         Raises:
             VersionNotFoundError: If the agent has no such version.
         """
-        with Session(self._engine) as session:
+        with _session(self._engine) as session:
             row = session.scalars(
                 _versions_of(agent).where(AgentVersionRow.sequence == sequence)
             ).one_or_none()
@@ -281,7 +283,7 @@ class RegistryRepository:
         if re.fullmatch(_PREFIX_PATTERN, prefix) is None:
             raise InvalidPrefixError(content_prefix)
         matching = AgentVersionRow.content_id.startswith(prefix, autoescape=True)
-        with Session(self._engine) as session:
+        with _session(self._engine) as session:
             content_ids = set(
                 session.scalars(
                     _versions_of(agent)
@@ -310,7 +312,7 @@ class RegistryRepository:
         Returns:
             The versions, newest first; empty if the agent has never been published.
         """
-        with Session(self._engine) as session:
+        with _session(self._engine) as session:
             rows = session.scalars(_versions_of(agent).order_by(AgentVersionRow.sequence.desc()))
             return tuple(_record(agent, row) for row in rows)
 
@@ -320,8 +322,16 @@ class RegistryRepository:
         Returns:
             The agent names, sorted by code point (the same on every database).
         """
-        with Session(self._engine) as session:
+        with _session(self._engine) as session:
             return tuple(sorted(session.scalars(select(AgentRow.name))))
+
+
+@contextmanager
+def _session(engine: Engine) -> Generator[Session]:
+    # Driver errors, including those raised when the transaction commits, become
+    # DatabaseUnavailableError, so callers see one storage error type.
+    with database_errors(), Session(engine) as session:
+        yield session
 
 
 def _versions_of(agent: str) -> Select[AgentVersionRow]:

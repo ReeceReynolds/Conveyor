@@ -6,7 +6,7 @@ from typing import Final, Self
 
 from sqlalchemy import URL, Engine
 
-from conveyor.storage.database import connect, writer
+from conveyor.storage.database import connect, database_errors, writer
 from conveyor.storage.migrate import upgrade
 from conveyor.storage.objects import ObjectStore
 from conveyor.storage.registry import RegistryRepository
@@ -44,10 +44,13 @@ class Store:
 
         Raises:
             IncompatibleSchemaError: If a newer Conveyor migrated the database.
+            MigrationError: If migrating the database fails for another reason.
+            DatabaseUnavailableError: If the database cannot be opened or locked, for example
+                because the file is not a database.
         """
         self._engine = engine
         try:
-            with writer(engine).begin() as connection:
+            with database_errors(), writer(engine).begin() as connection:
                 upgrade(connection)
         except BaseException:
             engine.dispose()

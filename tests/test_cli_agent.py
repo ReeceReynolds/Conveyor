@@ -347,6 +347,19 @@ def test_a_corrupt_registry_is_reported(project: Path) -> None:
 # --- diff -------------------------------------------------------------------------------------
 
 
+def test_a_file_that_is_not_a_database_is_reported(project: Path) -> None:
+    assert _agent("publish", "implementer", "-m", "initial").exit_code == 0
+    (project / STATE_DIR / "conveyor.db").write_text("not a database\n")
+
+    for args in (["history", "implementer"], ["show", "implementer"]):
+        result = _agent(*args)
+        assert result.exit_code == 1
+        assert result.output == snapshot(
+            "The registry in . cannot be read: the registry database cannot be used: file is "
+            "not a database\n"
+        )
+
+
 def test_diff_renders_every_change_in_full(project: Path) -> None:
     _agent("publish", "implementer", "-m", "initial")
     _switch_model(project)

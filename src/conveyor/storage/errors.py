@@ -24,6 +24,27 @@ class IncompatibleSchemaError(StorageError):
     """Raised when a database was migrated by a newer Conveyor than the one opening it."""
 
 
+class MigrationError(StorageError):
+    """Raised when migrating the database fails for any reason other than a newer schema."""
+
+
+class DatabaseUnavailableError(StorageError):
+    """Raised when the database cannot be used: not a database, locked too long, unreachable.
+
+    Attributes:
+        reason: The database driver's own one-line explanation.
+    """
+
+    def __init__(self, reason: str) -> None:
+        """Create the error.
+
+        Args:
+            reason: The database driver's own one-line explanation.
+        """
+        self.reason = reason
+        super().__init__(f"the registry database cannot be used: {reason}")
+
+
 class InvalidDigestError(StorageError, ValueError):
     """Raised when an object digest is not 64 lowercase hexadecimal characters."""
 

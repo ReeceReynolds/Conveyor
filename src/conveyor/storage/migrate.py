@@ -9,10 +9,11 @@ from typing import Final
 
 from alembic import command
 from alembic.config import Config
+from alembic.script.revision import ResolutionError
 from alembic.util import CommandError
 from sqlalchemy import Connection
 
-from conveyor.storage.errors import IncompatibleSchemaError
+from conveyor.storage.errors import IncompatibleSchemaError, MigrationError
 
 MIGRATIONS_DIR: Final = Path(__file__).with_name("migrations")
 """Where the Alembic environment and version scripts live."""
@@ -47,9 +48,15 @@ def upgrade(connection: Connection) -> None:
     Raises:
         IncompatibleSchemaError: If the database is at a revision this Conveyor does not know,
             which means a newer Conveyor migrated it.
+        MigrationError: If a migration fails for any other reason.
     """
     try:
         command.upgrade(alembic_config(connection), "head")
     except CommandError as error:
-        msg = f"the database schema is newer than this version of Conveyor supports: {error}"
-        raise IncompatibleSchemaError(msg) from error
+        # Alembic reports a revision it has no script for as a ResolutionError: the database
+        # was migrated by a newer Conveyor. Anything else is a failed migration.
+        if isinstance(error.__cause__, ResolutionError):
+            msg = f"the database schema is newer than this version of Conveyor supports: {error}"
+            raise IncompatibleSchemaError(msg) from error
+        msg = f"migrating the registry database failed: {error}"
+        raise MigrationError(msg) from error

@@ -11,13 +11,16 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from alembic.util import CommandError
 from sqlalchemy import DateTime, Engine, bindparam, inspect, text
 from sqlalchemy.dialects import sqlite
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from conveyor.storage import (
     STATE_DIR,
+    DatabaseUnavailableError,
     IncompatibleSchemaError,
+    MigrationError,
     Store,
     UnsupportedDatabaseError,
     database,
@@ -112,6 +115,49 @@ def test_a_newer_schema_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(IncompatibleSchemaError, match="newer than this version of Conveyor"):
         Store.open(tmp_path)
+
+
+def test_a_file_that_is_not_a_database_is_refused(tmp_path: Path) -> None:
+    (tmp_path / STATE_DIR).mkdir()
+    (tmp_path / STATE_DIR / "conveyor.db").write_bytes(b"not a database, just text\n" * 40)
+
+    with pytest.raises(DatabaseUnavailableError) as caught:
+        Store.open(tmp_path)
+
+    assert str(caught.value) == "the registry database cannot be used: file is not a database"
+
+
+def test_a_broken_migration_is_not_reported_as_a_newer_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(*_: object) -> None:
+        message = "Multiple head revisions are present"
+        raise CommandError(message)
+
+    monkeypatch.setattr(command, "upgrade", fail)
+
+    with pytest.raises(MigrationError, match="migrating the registry database failed: Multiple"):
+        Store.open(tmp_path)
+
+
+def test_database_errors_after_opening_are_storage_errors(tmp_path: Path) -> None:
+    with Store.open(tmp_path) as store:
+        engine = connect(f"sqlite:///{tmp_path / STATE_DIR / 'conveyor.db'}")
+        with engine.begin() as connection:
+            connection.execute(text("DROP TABLE agent_versions"))
+        engine.dispose()
+
+        with pytest.raises(DatabaseUnavailableError, match="no such table: agent_versions"):
+            store.registry.history("implementer")
+        with pytest.raises(DatabaseUnavailableError, match="no such table: agent_versions"):
+            store.registry.add_version(
+                agent="implementer",
+                content_id=DIGEST,
+                author="a",
+                message="m",
+                snapshot_digest=store.objects.put(b"snapshot"),
+                created_at=datetime(2026, 10, 29, tzinfo=UTC),
+            )
 
 
 def test_unsupported_databases_are_refused(tmp_path: Path) -> None:
