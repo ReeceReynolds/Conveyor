@@ -226,7 +226,15 @@ def test_versions_are_immutable(store: Store) -> None:
     with pytest.raises(ValidationError, match="frozen"):
         record.message = "rewritten"
     public = {name for name in vars(RegistryRepository) if not name.startswith("_")}
-    assert public == {"add_version", "latest", "get", "find", "history", "agents"}
+    assert public == {
+        "add_version",
+        "add_version_if_changed",
+        "latest",
+        "get",
+        "find",
+        "history",
+        "agents",
+    }
 
 
 def test_records_reject_unknown_fields() -> None:
@@ -263,6 +271,81 @@ def test_concurrent_publishers_never_share_a_sequence(store: Store) -> None:
     assert [(r.sequence, r.parent_sequence) for r in history] == [
         (n, n - 1 if n > 1 else None) for n in range(total, 0, -1)
     ]
+
+
+def publish_if_changed(
+    store: Store, agent: str, content_id: str, *, message: str = "change"
+) -> tuple[AgentVersionRecord, bool]:
+    """Like `publish`, through `add_version_if_changed`."""
+    snapshot = store.objects.put(f"{agent}:{content_id}".encode())
+    return store.registry.add_version_if_changed(
+        agent=agent,
+        content_id=content_id,
+        author="Ada <ada@example.com>",
+        message=message,
+        snapshot_digest=snapshot,
+        created_at=WHEN,
+    )
+
+
+def test_adding_if_changed_records_new_content(store: Store) -> None:
+    first, first_created = publish_if_changed(store, "implementer", content("a"))
+    second, second_created = publish_if_changed(store, "implementer", content("b"))
+
+    assert (first_created, second_created) == (True, True)
+    assert [(r.sequence, r.parent_sequence) for r in (first, second)] == [(1, None), (2, 1)]
+    assert store.registry.history("implementer") == (second, first)
+
+
+def test_adding_if_changed_returns_the_latest_when_its_content_is_the_same(store: Store) -> None:
+    latest = publish(store, "implementer", content("a"), message="original")
+
+    again, created = publish_if_changed(store, "implementer", content("a"), message="again")
+
+    assert (again, created) == (latest, False)
+    assert store.registry.history("implementer") == (latest,)
+
+
+def test_adding_if_changed_compares_only_with_the_latest_version(store: Store) -> None:
+    publish(store, "implementer", content("a"))
+    publish(store, "implementer", content("b"))
+    publish(store, "reviewer", content("c"))
+
+    reverted, reverted_created = publish_if_changed(store, "implementer", content("a"))
+    other, other_created = publish_if_changed(store, "planner", content("c"))
+
+    assert (reverted_created, reverted.sequence, reverted.parent_sequence) == (True, 3, 2)
+    assert (other_created, other.sequence) == (True, 1)
+
+
+def test_adding_if_changed_validates_like_add_version(store: Store) -> None:
+    with pytest.raises(ObjectNotFoundError):
+        store.registry.add_version_if_changed(
+            agent="implementer",
+            content_id=content("a"),
+            author="ada",
+            message="m",
+            snapshot_digest=content("never stored"),
+            created_at=WHEN,
+        )
+    assert store.registry.agents() == ()
+
+
+def test_concurrent_publishers_of_the_same_content_record_it_once(store: Store) -> None:
+    publish(store, "implementer", content("a"))
+    publishers = 6
+
+    def publish_same(_worker: int) -> tuple[AgentVersionRecord, bool]:
+        return publish_if_changed(store, "implementer", content("b"))
+
+    with ThreadPoolExecutor(max_workers=publishers) as pool:
+        outcomes = list(pool.map(publish_same, range(publishers)))
+
+    created = [record for record, was_created in outcomes if was_created]
+    assert len(created) == 1
+    assert (created[0].sequence, created[0].parent_sequence) == (2, 1)
+    assert [record for record, _ in outcomes] == [created[0]] * publishers
+    assert [r.sequence for r in store.registry.history("implementer")] == [2, 1]
 
 
 def test_separate_stores_on_one_project_share_the_registry(tmp_path: Path) -> None:

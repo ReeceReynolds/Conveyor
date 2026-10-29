@@ -370,10 +370,15 @@ def publish(
     """Publish the agent in `<project_root>/agents/<name>/` as its next version.
 
     The folder is validated and snapshotted first; an invalid agent is refused and nothing is
-    stored. If the snapshot has the same content as the latest version, nothing is published
-    and that version is returned. Otherwise the snapshot is written to the object store and
-    then recorded as a new version, so a version never points to a missing snapshot. Content
-    equal to an older version (a revert) is still a new version, with the next sequence.
+    stored. The snapshot is then written to the object store and recorded as a new version, so
+    a version never points to a missing snapshot. If the latest version has the same content,
+    nothing is recorded and that version is returned. Content equal to an older version (a
+    revert) is still a new version, with the next sequence.
+
+    Publishing is safe to run from several processes at once. Whether the content is
+    unchanged is decided in the same locked transaction that records the version (see
+    `RegistryRepository.add_version_if_changed`), so publishers of the same content record it
+    once, and the diff is always taken from the version the new one actually follows.
 
     Args:
         project_root: The project holding `agents/` and the contract modules; its state lives
@@ -401,14 +406,13 @@ def publish(
     snapshot_id = content_id(snapshot)
 
     with Store.open(project_root) as store:
-        latest = store.registry.latest(name)
-        if latest is not None and latest.content_id == snapshot_id:
-            return PublishResult(record=latest, created=False, diff=None)
-        # Read the previous snapshot before writing anything, so a corrupt store fails the
-        # publish without leaving a half-recorded version.
-        previous = None if latest is None else (latest, load_snapshot(store, latest))
         digest = store.objects.put(canonical_bytes(snapshot))
-        record = store.registry.add_version(
+        # Check the latest snapshot before recording anything, so a corrupt store fails the
+        # publish without leaving a version behind. This read only checks and caches: another
+        # publisher may record a version before ours, so it never decides what ours follows.
+        latest = store.registry.latest(name)
+        checked = {} if latest is None else {latest.sequence: load_snapshot(store, latest)}
+        record, created = store.registry.add_version_if_changed(
             agent=name,
             content_id=snapshot_id,
             author=author,
@@ -416,14 +420,17 @@ def publish(
             snapshot_digest=digest,
             created_at=now,
         )
+        if not created or record.parent_sequence is None:
+            return PublishResult(record=record, created=created, diff=None)
+        parent = store.registry.get(name, record.parent_sequence)
+        parent_snapshot = checked.get(parent.sequence)
+        if parent_snapshot is None:
+            parent_snapshot = load_snapshot(store, parent)
 
-    if previous is None:
-        return PublishResult(record=record, created=True, diff=None)
-    previous_record, previous_snapshot = previous
     diff = VersionDiff(
         name=name,
-        old_label=_label(previous_record),
+        old_label=_label(parent),
         new_label=_label(record),
-        diff=diff_snapshots(previous_snapshot, snapshot),
+        diff=diff_snapshots(parent_snapshot, snapshot),
     )
     return PublishResult(record=record, created=True, diff=diff)

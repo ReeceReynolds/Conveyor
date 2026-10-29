@@ -29,7 +29,7 @@ from conveyor.registry import (
     snapshot_working_copy,
 )
 from conveyor.registry import service as service_module
-from conveyor.storage import STATE_DIR, AgentVersionRecord, Store
+from conveyor.storage import STATE_DIR, AgentVersionRecord, RegistryRepository, Store
 
 WHEN = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
 AGENT = "implementer"
@@ -135,6 +135,64 @@ def test_reverting_publishes_a_new_sequence_with_the_old_content(example_project
         assert [record.sequence for record in store.registry.history(AGENT)] == [3, 2, 1]
         # A prefix of content shared by v1 and v3 names the newest of them.
         assert resolve(store, AGENT, first.record.content_id[:8]) == third.record
+
+
+def _race_after_reading(
+    project: Path, monkeypatch: pytest.MonkeyPatch, stale: int | None
+) -> AgentVersionRecord:
+    """Publish v1 and v2, then make publish's first read of the latest version return `stale`.
+
+    That is what a publish sees when another publisher records v2 just after it looks.
+
+    Returns:
+        v2.
+    """
+    _publish(project, "initial")
+    _switch_model(project)
+    second = _publish(project, "Switch to GPT-5", minutes=5).record
+    with Store.open(project) as store:
+        seen = None if stale is None else store.registry.get(AGENT, stale)
+
+    def latest(_self: RegistryRepository, _agent: str) -> AgentVersionRecord | None:
+        return seen
+
+    monkeypatch.setattr(RegistryRepository, "latest", latest)
+    return second
+
+
+def _sequences(project: Path) -> list[int]:
+    with Store.open(project) as store:
+        return [record.sequence for record in store.registry.history(AGENT)]
+
+
+@pytest.mark.parametrize("stale", [None, 1], ids=["read-nothing", "read-v1"])
+def test_publish_sees_unchanged_content_recorded_after_its_first_read(
+    example_project: Path, monkeypatch: pytest.MonkeyPatch, stale: int | None
+) -> None:
+    second = _race_after_reading(example_project, monkeypatch, stale)
+
+    result = _publish(example_project, "racing", minutes=10)
+
+    assert result == PublishResult(record=second, created=False, diff=None)
+    assert _sequences(example_project) == [2, 1]
+
+
+@pytest.mark.parametrize("stale", [None, 1], ids=["read-nothing", "read-v1"])
+def test_publish_diffs_from_the_version_it_follows_not_its_first_read(
+    example_project: Path, monkeypatch: pytest.MonkeyPatch, stale: int | None
+) -> None:
+    _race_after_reading(example_project, monkeypatch, stale)
+    _switch_model(example_project, NEW_MODEL, "id: google/gemini")
+
+    result = _publish(example_project, "racing", minutes=10)
+
+    assert (result.record.sequence, result.record.parent_sequence) == (3, 2)
+    assert result.diff is not None
+    assert result.diff.summary() == snapshot(
+        "implementer v2 → v3: Capabilities changed; model profile changed; model switched"
+        " (openai/gpt-5 → google/gemini)"
+    )
+    assert _sequences(example_project) == [3, 2, 1]
 
 
 def test_publish_refuses_an_invalid_agent_and_stores_nothing(example_project: Path) -> None:

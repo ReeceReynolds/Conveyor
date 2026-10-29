@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Final
 
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
-from sqlalchemy import Engine, Select, func, select
+from sqlalchemy import Engine, Select, select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
@@ -108,6 +108,73 @@ class RegistryRepository:
             InvalidDigestError: If `snapshot_digest` is malformed.
             pydantic.ValidationError: If any other argument is invalid.
         """
+        record, _ = self._add(
+            agent=agent,
+            content_id=content_id,
+            author=author,
+            message=message,
+            snapshot_digest=snapshot_digest,
+            created_at=created_at,
+            if_changed=False,
+        )
+        return record
+
+    # The same columns as `add_version`.
+    def add_version_if_changed(  # noqa: PLR0913
+        self,
+        *,
+        agent: str,
+        content_id: str,
+        author: str,
+        message: str,
+        snapshot_digest: str,
+        created_at: datetime,
+    ) -> tuple[AgentVersionRecord, bool]:
+        """Record the next version of an agent, unless its latest version has the same content.
+
+        Like `add_version`, except that the latest version's content id is compared inside
+        the same locked transaction that records the new version. Of several publishers of
+        identical content, exactly one records it, and the others get that version back.
+
+        Args:
+            agent: The agent's name.
+            content_id: The new version's id (its snapshot hash).
+            author: Who is publishing.
+            message: Why.
+            snapshot_digest: Where the snapshot is in the object store; it must be stored.
+            created_at: When, as a timezone-aware datetime.
+
+        Returns:
+            The recorded version and `True`; or, when the latest version already has
+            `content_id`, that version and `False`, with nothing written.
+
+        Raises:
+            ObjectNotFoundError: If no object with `snapshot_digest` is stored.
+            InvalidDigestError: If `snapshot_digest` is malformed.
+            pydantic.ValidationError: If any other argument is invalid.
+        """
+        return self._add(
+            agent=agent,
+            content_id=content_id,
+            author=author,
+            message=message,
+            snapshot_digest=snapshot_digest,
+            created_at=created_at,
+            if_changed=True,
+        )
+
+    # The columns of `add_version`, plus the one switch between the two public methods.
+    def _add(  # noqa: PLR0913
+        self,
+        *,
+        agent: str,
+        content_id: str,
+        author: str,
+        message: str,
+        snapshot_digest: str,
+        created_at: datetime,
+        if_changed: bool,
+    ) -> tuple[AgentVersionRecord, bool]:
         if not self._objects.exists(snapshot_digest):
             raise ObjectNotFoundError(snapshot_digest)
         # Validate everything before touching the database, so bad input is always a
@@ -124,16 +191,22 @@ class RegistryRepository:
         )
         with Session(self._writer) as session, session.begin():
             agent_id = _lock_agent(session, agent)
-            latest = session.scalar(
-                select(func.max(AgentVersionRow.sequence)).where(
-                    AgentVersionRow.agent_id == agent_id
-                )
-            )
+            # Read under the lock: no other publisher can record a version until this
+            # transaction ends, so the latest version cannot change between here and the insert.
+            latest = session.scalars(
+                select(AgentVersionRow)
+                .where(AgentVersionRow.agent_id == agent_id)
+                .order_by(AgentVersionRow.sequence.desc())
+                .limit(1)
+            ).first()
+            if if_changed and latest is not None and latest.content_id == draft.content_id:
+                return _record(agent, latest), False
+            parent = None if latest is None else latest.sequence
             # The numbers come from the database and satisfy the record's constraints.
             record = draft.model_copy(
                 update={
-                    "sequence": 1 if latest is None else latest + 1,
-                    "parent_sequence": latest,
+                    "sequence": 1 if parent is None else parent + 1,
+                    "parent_sequence": parent,
                 }
             )
             session.add(
@@ -148,7 +221,7 @@ class RegistryRepository:
                     snapshot_digest=record.snapshot_digest,
                 )
             )
-        return record
+        return record, True
 
     def latest(self, agent: str) -> AgentVersionRecord | None:
         """Find an agent's newest version.

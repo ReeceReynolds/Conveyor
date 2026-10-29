@@ -31,6 +31,13 @@ so state never reaches Git even in projects whose own `.gitignore` does not ment
   path locks the agent's row with `SELECT ... FOR UPDATE`. A unique `(agent_id, sequence)`
   constraint, a self-referencing parent foreign key and check constraints back this up in the
   schema itself.
+- Every decision a version depends on is made under that lock, never from an earlier read.
+  The next sequence and the parent are computed in the recording transaction, and so is the
+  no-op check for publishing unchanged content: `add_version_if_changed` compares the latest
+  version's content ID inside the transaction and returns that version, with `created=False`,
+  when it matches. Several processes publishing the same content therefore record it once, and
+  the registry service builds each publish's diff from the recorded `parent_sequence`. A test
+  runs six publishing processes against one project to hold this.
 - Timestamps are stored as naive UTC (a portable `TypeDecorator`) and returned timezone-aware;
   naive input is rejected rather than guessed at.
 - Callers never see ORM rows: repositories return frozen Pydantic records (ADR 0008).
