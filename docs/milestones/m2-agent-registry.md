@@ -97,7 +97,7 @@ switched (… → …)"*.
 
 ## Status
 
-All four work packages are built. Each lands in `milestone/agent-registry`; #15 stacks on #12
+All four work packages are built. Each lands in `milestone/agent-registry`; #16 stacks on #12
 and is reviewed together with it.
 
 | Work package | Status | PRs |
@@ -105,7 +105,7 @@ and is reviewed together with it.
 | WP-A — Contract resolution | Done | #11 |
 | WP-B — Storage foundation | Done | #12 |
 | WP-C — Agent snapshots and structured diffs | Done | #13, #14 (review fixes) |
-| WP-D — Registry service and CLI | Done | #15 |
+| WP-D — Registry service and CLI | Done | #16 |
 
 ## Delivery
 
