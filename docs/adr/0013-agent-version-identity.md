@@ -55,7 +55,7 @@ that are not exactly canonical.
 
 **Content IDs identify content, not versions.** Reverting an agent to earlier content
 produces that content's old ID again, but it is a new version: the storage layer
-([ADR 0012](0012-storage.md)) gives each publish a sequence number (`v1`, `v2`, ...) and a
+(ADR 0012) gives each publish a sequence number (`v1`, `v2`, ...) and a
 parent, and several versions can share a content ID. Publishing content identical to the
 latest version is a no-op.
 

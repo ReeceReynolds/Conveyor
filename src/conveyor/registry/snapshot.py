@@ -208,7 +208,10 @@ def _read_text(file: Path) -> str:
     text files, so the same commit would hash differently. The bytes must be UTF-8; a leading
     byte order mark is dropped and CRLF line endings become LF.
     """
-    if file.is_symlink() or not file.is_file():
+    if file.is_symlink():
+        message = "symbolic links are not followed"
+        raise SnapshotError(message, file)
+    if not file.is_file():
         message = "not a regular file" if file.exists() else "file not found"
         raise SnapshotError(message, file)
     data = file.read_bytes()
@@ -263,6 +266,21 @@ def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
     return tuple(sorted(files, key=lambda file: file.path))
 
 
+def _inside(folder: Path, path: PurePosixPath) -> Path:
+    """Join a path from `agent.yaml` to the agent folder, refusing links to folders on the way.
+
+    Without this, `prompts/main.md` with `prompts` a link would read a file from anywhere. The
+    last part is checked by whoever reads it, so it gets a more specific message.
+    """
+    target = folder
+    for part in path.parts[:-1]:
+        target /= part
+        if target.is_symlink():
+            message = "symbolic links are not followed"
+            raise SnapshotError(message, target)
+    return folder / path
+
+
 def _schema(contract_schemas: Mapping[str, JsonSchema], ref: str, field: str) -> JsonSchema:
     try:
         return contract_schemas[ref]
@@ -278,7 +296,8 @@ def build_snapshot(
 
     Reads the instructions file and every file of the eval suite. Text must be UTF-8; line
     endings are normalised from CRLF to LF and a byte order mark is dropped, so an agent
-    checked out on Windows hashes the same as on Linux or macOS. Symbolic links are refused.
+    checked out on Windows hashes the same as on Linux or macOS. Symbolic links are refused,
+    including links to folders on the way to a file.
 
     Args:
         folder: The agent's folder; the paths in `agent` are relative to it.
@@ -290,13 +309,14 @@ def build_snapshot(
         The snapshot.
 
     Raises:
-        SnapshotError: If a file is missing, not regular or not UTF-8 text, a contract schema
-            is missing, or the content cannot be represented exactly in JSON.
+        SnapshotError: If a file is missing, not regular, not UTF-8 text or reached through a
+            symbolic link, a contract schema is missing, or the content cannot be represented
+            exactly in JSON.
     """
     input_schema = _schema(contract_schemas, agent.brief.input, "input")
     output_schema = _schema(contract_schemas, agent.brief.output, "output")
-    instructions = _read_text(folder / agent.brief.instructions)
-    eval_files = read_eval_suite(folder / agent.quality_gate.suite)
+    instructions = _read_text(_inside(folder, agent.brief.instructions))
+    eval_files = read_eval_suite(_inside(folder, agent.quality_gate.suite))
     try:
         return AgentSnapshot(
             agent=agent,
