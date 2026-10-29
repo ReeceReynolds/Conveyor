@@ -55,8 +55,12 @@ migrated scratch database, then reviewed by hand.
 **Objects: a content-addressed, write-once store on the filesystem.** Blobs are named by the
 sha256 of their bytes, fanned out as `objects/ab/cdef...`. Writes go to a temporary file in the
 target directory, are fsynced, and are moved into place with `os.replace`, so a reader sees a
-whole object or none; writing existing content is a no-op. Every read re-hashes the bytes and
-raises `CorruptObjectError` on mismatch. Digests are validated before they become paths. The
+whole object or none; the fan-out directory (and the root, for a new fan-out directory) is then
+fsynced on POSIX, so the object's name survives a crash as well as its bytes. Writing content
+that is already stored re-hashes the existing object and is a no-op only if it is intact; a
+corrupt object is rewritten, so publishing its content again repairs it rather than recording a
+version that points at bad bytes. Every read re-hashes the bytes and raises
+`CorruptObjectError` on mismatch. Digests are validated before they become paths. The
 registry refuses to record a version whose snapshot is not already stored.
 
 **Postgres** is supported through the same models and migrations. The repository, migration

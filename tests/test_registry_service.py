@@ -195,6 +195,21 @@ def test_publish_diffs_from_the_version_it_follows_not_its_first_read(
     assert _sequences(example_project) == [3, 2, 1]
 
 
+def test_republishing_content_repairs_its_corrupt_snapshot(example_project: Path) -> None:
+    first = _publish(example_project, "initial").record
+    _switch_model(example_project)
+    _publish(example_project, "Switch to GPT-5", minutes=5)
+    digest = first.snapshot_digest
+    (example_project / STATE_DIR / "objects" / digest[:2] / digest[2:]).write_bytes(b"{}")
+    _switch_model(example_project, NEW_MODEL, OLD_MODEL)
+
+    third = _publish(example_project, "Back to Claude", minutes=10).record
+
+    assert (third.sequence, third.snapshot_digest) == (3, digest)
+    with Store.open(example_project) as store:
+        assert load_snapshot(store, third) == load_snapshot(store, first)
+
+
 def test_publish_refuses_an_invalid_agent_and_stores_nothing(example_project: Path) -> None:
     file = _agent_file(example_project)
     file.write_text(file.read_text().replace("min_pass_rate: 0.9", "min_pass_rate: 2"))
