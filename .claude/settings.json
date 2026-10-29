@@ -2,6 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
+      "Bash(make quick)",
       "Bash(make check)",
       "Bash(make lint)",
       "Bash(make typecheck)",
@@ -13,10 +14,50 @@
       "Bash(uv run pytest:*)",
       "Bash(uv run ruff:*)",
       "Bash(uv run pyright:*)",
+      "Bash(uv run lint-imports)",
+      "Bash(uv run conveyor validate:*)",
       "Bash(uv run pre-commit run:*)",
       "Bash(pnpm -C ui run:*)",
       "Bash(pnpm -C ui exec biome:*)",
-      "Bash(pnpm -C ui exec vitest:*)"
+      "Bash(pnpm -C ui exec vitest:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git commit --no-verify:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_files.py\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/format_and_lint.py\"",
+            "timeout": 60
+          }
+        ]
+      }
     ]
   }
 }
