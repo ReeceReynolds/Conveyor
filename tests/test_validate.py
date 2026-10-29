@@ -208,6 +208,7 @@ def test_project_reports_unresolvable_contracts_on_their_lines() -> None:
         "missing",
         "no-schema",
         "resolves",
+        "too-wide",
     ]
     # `broken` also has a config problem; every problem is still reported in one pass.
     assert _triples(report.issues) == snapshot(
@@ -253,6 +254,13 @@ def test_project_reports_unresolvable_contracts_on_their_lines() -> None:
                 "brief.output",
                 "cannot resolve contract 'contracts.value': 'value' is not a class but a "
                 "value of type 'int'",
+            ),
+            (
+                "projects/contracts/agents/too-wide/agent.yaml:2:42",
+                "brief.input",
+                "cannot resolve contract 'contracts.wide.Counter': its JSON Schema has a value "
+                "JSON cannot carry exactly: integer 9223372036854775807 exceeds 2**53 - 1 at "
+                "/properties/count/maximum",
             ),
         ]
     )
