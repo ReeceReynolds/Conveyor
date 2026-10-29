@@ -95,6 +95,17 @@ Wave 1 runs in parallel; wave 2 builds on all three.
 whose summary reads *"implementer v1 → v2: Capabilities changed; model profile changed; model
 switched (… → …)"*.
 
+## Status
+
+All four work packages are built and land in `milestone/agent-registry`.
+
+| Work package | Status | PR |
+|---|---|---|
+| WP-A — Contract resolution | Done | #11 |
+| WP-B — Storage foundation | Done | #12 |
+| WP-C — Agent snapshots and structured diffs | Done | #13 |
+| WP-D — Registry service and CLI | Done | #PR_NUMBER |
+
 ## Delivery
 
 Work packages land as PRs into `milestone/agent-registry`; the milestone then lands on `main` as

@@ -17,8 +17,9 @@ src/conveyor/        Python package (import name `conveyor`, distribution `conve
   model/             Factory model: config models, YAML loading, checks, JSON Schema export
   contracts/         Contract resolution: Brief references to Pydantic models and their schemas
   storage/           Local state: SQLite/Alembic database, object store, registry repository
-  registry/          Agent snapshots, content-hash version IDs and structured diffs
+  registry/          Agent snapshots, content-hash version IDs, diffs and the registry service
   cli.py             `conveyor` command line (Typer)
+  cli_agent.py       `conveyor agent` commands: publish, history, show, diff
 tests/               pytest suite for src/conveyor; YAML fixtures in tests/fixtures/
 schemas/             Published JSON Schemas for agent.yaml and factory files (generated)
 ui/                  React + TypeScript web interface (pnpm, Vite, Biome, Vitest)
@@ -41,6 +42,8 @@ Run everything from the repository root.
 | Postgres storage tests (need Docker) | `uv run pytest -m postgres` |
 | Regenerate JSON Schemas after a model change | `make schemas` |
 | Validate agents and factories | `uv run conveyor validate <path>` |
+| Publish an agent version | `uv run conveyor agent publish <name> -m "<message>" [--project <path>]` |
+| List, show and compare agent versions | `uv run conveyor agent history <name>`, `show <name>[@vN]`, `diff <name> [FROM] [TO] [--working]` |
 | Update inline snapshots | `uv run pytest --inline-snapshot=fix` |
 | Add a Python dependency | `uv add <pkg>` (or `uv add --dev <pkg>`) |
 | Add a UI dependency | `pnpm -C ui add <pkg>` |

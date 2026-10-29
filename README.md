@@ -43,6 +43,55 @@ modules**: validate only projects whose code you trust. Editors that understand
 JSON Schema can validate and autocomplete these files using [`schemas/`](schemas/); see the
 [reference factory](examples/prd-to-pr/) for a complete example.
 
+## Versioning agents
+
+`conveyor agent publish` turns an agent folder into an immutable version. It validates the
+agent, snapshots everything that defines it (its `agent.yaml`, instructions, contract schemas
+and eval files) and records the snapshot under the sha256 of its canonical form, so the same
+content always gets the same ID ([ADR 0013](docs/adr/0013-agent-version-identity.md)). Each
+publish also gets a sequence number (`v1`, `v2`, ...), an author, a message and a time.
+Versions live in the project's `.conveyor/` folder, which is never committed.
+
+Publish the reference factory's `implementer`, switch its model, check what changed and
+publish again:
+
+```console
+$ cd examples/prd-to-pr
+$ uv run conveyor agent publish implementer -m "initial"
+Published implementer v1 (893e1fa01106): first version
+
+$ # edit agents/implementer/agent.yaml: capabilities.model.id: openai/gpt-5
+$ uv run conveyor agent diff implementer --working --summary
+implementer v1 → working copy: Capabilities changed; model profile changed; model switched (anthropic/claude-sonnet → openai/gpt-5)
+
+$ uv run conveyor agent publish implementer -m "Switch to GPT-5"
+Published implementer v2 (7b514a755dad): Capabilities changed; model profile changed; model switched (anthropic/claude-sonnet → openai/gpt-5)
+
+$ uv run conveyor agent diff implementer --summary
+implementer v1 → v2: Capabilities changed; model profile changed; model switched (anthropic/claude-sonnet → openai/gpt-5)
+
+$ uv run conveyor agent history implementer
+v2  7b514a755dad  2026-10-28 12:05  ada  Switch to GPT-5
+v1  893e1fa01106  2026-10-28 12:00  ada  initial
+```
+
+Diffs are described in factory-model terms: which block changed (Brief, Capabilities,
+Quality Gate), which component inside it and which primitive. Without `--summary`, `diff`
+lists every change, with line-by-line diffs of instructions and eval files.
+
+| Command | What it does |
+|---|---|
+| `conveyor agent publish NAME -m MSG [--author TEXT]` | Validate `agents/NAME/` and publish it as the next version; does nothing if the content is unchanged |
+| `conveyor agent history NAME` | List versions, newest first |
+| `conveyor agent show NAME[@REF]` | Show a version's metadata, `agent.yaml` and file sizes |
+| `conveyor agent diff NAME [FROM] [TO] [--working] [--summary]` | Compare the last two versions, any two, or a version with the folder on disk |
+
+A version is referred to as `latest`, `vN` or at least four hex characters of its content ID.
+Every command takes `--project PATH` (default: the current directory). Publishing refuses an
+invalid agent and prints its problems as `conveyor validate` does; like `validate`, it imports
+the project's contract modules. `diff` exits `0` whether or not there are differences unless
+`--exit-code` is given; elsewhere `1` means problems or an unknown version and `2` a usage error.
+
 ## Development
 
 Requirements: [uv](https://docs.astral.sh/uv/) ≥ 0.13, Python 3.14, Node 24 and
