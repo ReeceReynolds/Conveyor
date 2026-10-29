@@ -115,6 +115,8 @@ def _reversed_keys(value: JsonValue) -> JsonValue:
     return value
 
 
+# `Any` because the edits mix str, float, list[str] and nested dicts, and `list` is invariant,
+# so no JsonValue-typed container accepts them; `model_validate` checks every value anyway.
 def _edit(snapshot: AgentSnapshot, edits: dict[str, Any]) -> AgentSnapshot:
     data = snapshot.model_dump(mode="json")
     for path, value in edits.items():
@@ -168,6 +170,7 @@ def test_diff_is_empty_exactly_when_ids_match_and_never_fails_to_describe(
 
 
 _MODEL = "agent.capabilities.model"
+# `Any` for the same reason as `_edit`: each strategy draws a different type for its field.
 _MUTATIONS: list[tuple[Block, str, st.SearchStrategy[Any]]] = [
     (Block.BRIEF, "instructions", _texts),
     (Block.BRIEF, "agent.brief.instructions", _paths),

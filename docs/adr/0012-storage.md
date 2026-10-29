@@ -23,8 +23,10 @@ so state never reaches Git even in projects whose own `.gitignore` does not ment
   strict with no ignores. A metadata naming convention gives every constraint a deterministic
   name, so migrations can address it on any backend.
 - Every SQLite connection sets `journal_mode=WAL` (readers never block the writer),
-  `synchronous=NORMAL` (safe with WAL), `foreign_keys=ON` (SQLite's default is off) and a 15 s
-  `busy_timeout`, from a `connect` event listener.
+  `synchronous=NORMAL`, `foreign_keys=ON` (SQLite's default is off) and a 15 s
+  `busy_timeout`, from a `connect` event listener. With WAL, `synchronous=NORMAL` keeps the
+  database consistent after a crash or power loss, but the most recent commits can be lost;
+  a lost publish is cheap to repeat, and `FULL` would fsync on every commit.
 - SQLAlchemy, not the `sqlite3` module, emits `BEGIN`, so reads get a real snapshot and DDL is
   transactional. Write transactions use `BEGIN IMMEDIATE`, taking the write lock up front so
   concurrent publishers queue on the busy timeout instead of failing. On Postgres the same code
