@@ -35,7 +35,18 @@ jobs:
       - run: uv sync --all-packages --locked
       - run: make lint
       - run: make typecheck
-      - run: make test
+      - name: Run the tests
+        env:
+          # Short tracebacks and a summary of failures and errors, so the log tail says why.
+          PYTEST_ADDOPTS: -rfE --tb=short
+        run: |
+          set -o pipefail
+          make test 2>&1 | tee pytest.log
+      - name: Report failures as annotations
+        if: failure()
+        run: |
+          grep -E '^(FAILED|ERROR) ' pytest.log | head -n 20 | sed 's/^/::error title=pytest::/' || true
+          { echo '```'; tail -n 80 pytest.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   postgres:
     name: Postgres storage tests
