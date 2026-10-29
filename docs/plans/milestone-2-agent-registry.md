@@ -1,6 +1,6 @@
 # Milestone 2 — Agent registry and versioning
 
-- Status: In progress
+- Status: Done; lands on `main` with #24
 - Integration branch: `milestone/agent-registry`
 
 **Goal:** `conveyor agent publish <name> -m "message"` turns an agent folder into an immutable,
@@ -16,10 +16,12 @@ terms, e.g. *"implementer v4 → v5: Capabilities changed; model profile changed
 
 | Work package | Branch | State |
 |---|---|---|
-| WP-A — Contract resolution | `feat/contract-resolution` | Merged into the milestone branch (#11) |
-| WP-B — Storage foundation | `feat/storage` | Open (#12) |
-| WP-C — Agent snapshots and structured diffs | `feat/agent-snapshots` | Open (#13) |
-| WP-D — Registry service and CLI | `feat/registry-cli` | In progress |
+| WP-A — Contract resolution | `feat/contract-resolution` | Done (#11) |
+| WP-B — Storage foundation | `feat/storage` | Done; lands through #16, which stacks it (#12) |
+| WP-C — Agent snapshots and structured diffs | `feat/agent-snapshots` | Done (#13, review fixes #14) |
+| WP-D — Registry service and CLI | `feat/registry-cli` | Done, with the independent review's fixes (#16) |
+
+Follow-ups from the independent review: #19–#23.
 
 ADR numbers 0011–0013 are taken by this milestone's work packages.
 

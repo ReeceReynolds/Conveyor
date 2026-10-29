@@ -20,4 +20,4 @@ the same, current version, and so changes to the plan are reviewed like code.
 
 | Milestone | Status |
 |---|---|
-| [2 — Agent registry and versioning](milestone-2-agent-registry.md) | In progress |
+| [2 — Agent registry and versioning](milestone-2-agent-registry.md) | Done |

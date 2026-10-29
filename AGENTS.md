@@ -31,8 +31,7 @@ src/conveyor/        Python package (import name `conveyor`, distribution `conve
   contracts/         Contract resolution: Brief references to Pydantic models and their schemas
   storage/           Local state: SQLite/Alembic database, object store, registry repository
   registry/          Agent snapshots, content-hash version IDs, diffs and the registry service
-  cli.py             `conveyor` command line (Typer)
-  cli_agent.py       `conveyor agent` commands: publish, history, show, diff
+  cli.py             `conveyor` command line (Typer): `validate` and `agent publish|history|show|diff`
 tests/               pytest suite for src/conveyor; YAML fixtures in tests/fixtures/
 schemas/             Published JSON Schemas for agent.yaml and factory files (generated)
 ui/                  React + TypeScript web interface (pnpm, Vite, Biome, Vitest)
@@ -48,9 +47,9 @@ never from layers above; packages in the same layer (`|`) are independent of eac
 
 ```
 conveyor.cli                          command line; the only package that imports typer
-conveyor.registry                     agent snapshots, diffs and versions (milestone 2)
-conveyor.model | conveyor.storage     factory model | local state (storage arrives in milestone 2)
-conveyor.contracts                    contract resolution (milestone 2)
+conveyor.registry                     agent snapshots, diffs, versions and the registry service
+conveyor.model | conveyor.storage     factory model | local state
+conveyor.contracts                    contract resolution
 ```
 
 This is enforced by import-linter (`uv run lint-imports`, part of `make lint`), which also keeps
