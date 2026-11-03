@@ -31,6 +31,7 @@ from conveyor.registry import (
     snapshot_from_bytes,
     summarise,
 )
+from conveyor.registry import snapshot as snapshot_module
 from conveyor.registry.canonical import CanonicalFormError, canonical_json, load_canonical_json
 from conveyor.registry.diff import json_changes, text_diff
 
@@ -378,28 +379,55 @@ def test_an_unreadable_eval_folder_is_an_error_not_an_empty_one(
     assert str(caught.value).endswith(": cannot be read: Permission denied")
 
 
-@pytest.mark.parametrize(
-    ("first", "second", "clash"),
-    [
-        ("Case.yaml", "case.yaml", "'Case.yaml' and 'case.yaml'"),
-        ("Cases/a.yaml", "cases/b.yaml", "'Cases' and 'cases'"),
-        ("A/x.yaml", "a", "'A' and 'a'"),
-    ],
-)
+_CASE_CLASHES = [
+    (("Case.yaml", "case.yaml"), "'Case.yaml' and 'case.yaml'"),
+    (("Cases/a.yaml", "cases/b.yaml"), "'Cases' and 'cases'"),
+    (("A/x.yaml", "a"), "'A' and 'a'"),
+]
+"""Eval file paths a case-insensitive file system merges, and the names that clash."""
+
+
+def _not_portable(clash: str) -> str:
+    return (
+        f"eval file names {clash} are not portable: they differ only in case, so macOS and"
+        " Windows treat them as the same"
+    )
+
+
+@pytest.mark.parametrize(("paths", "clash"), _CASE_CLASHES)
 def test_eval_file_names_differing_only_in_case_are_not_portable(
-    tmp_path: Path, first: str, second: str, clash: str
+    paths: tuple[str, str], clash: str
 ) -> None:
     # A case-insensitive checkout (macOS, Windows) merges them, so one commit would hash two
-    # ways, as with a backslash in a name.
-    _layout(tmp_path, {"prompt.md": b"Go.\n", f"evals/{first}": b"x: 1\n"})
-    _layout(tmp_path, {f"evals/{second}": b"x: 2\n"})
+    # ways, as with a backslash in a name. Built from data: such a checkout cannot hold both.
+    files = [EvalFile.of(path, "x: 1\n") for path in paths]
+
+    with pytest.raises(ValidationError) as caught:
+        _edit(BASE, {"eval_files": [file.model_dump() for file in files]})
+
+    (error,) = caught.value.errors(include_url=False)
+    assert (error["loc"], error["msg"]) == (("eval_files",), f"Value error, {_not_portable(clash)}")
+
+
+@pytest.mark.parametrize(("paths", "clash"), _CASE_CLASHES)
+def test_build_snapshot_refuses_eval_names_differing_only_in_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, paths: tuple[str, str], clash: str
+) -> None:
+    (tmp_path / "prompt.md").write_text("Go.\n")
+    files = tuple(EvalFile.of(path, "x: 1\n") for path in paths)
+
+    # Stands in for reading a case-sensitive checkout, which this machine may not be.
+    def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
+        assert suite == tmp_path / "evals"
+        return files
+
+    monkeypatch.setattr(snapshot_module, "read_eval_suite", read_eval_suite)
 
     with pytest.raises(SnapshotError) as caught:
         build_snapshot(tmp_path, BASE.agent, _schemas())
 
     assert str(caught.value) == (
-        f"{tmp_path / 'evals'}: file names {clash} are not portable: they differ only in case,"
-        " so macOS and Windows treat them as the same"
+        f"{tmp_path}: cannot snapshot agent 'implementer': eval_files: {_not_portable(clash)}"
     )
 
 

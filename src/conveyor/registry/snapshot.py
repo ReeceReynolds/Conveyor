@@ -108,6 +108,26 @@ class EvalFile(ConfigModel):
         return self
 
 
+def _check_case_portable(files: Sequence[EvalFile]) -> None:
+    """Refuse eval file names that a case-insensitive file system would merge into one.
+
+    macOS and Windows check out `Case.yaml` and `case.yaml`, or `Cases/` and `cases/`, as one
+    file or folder, so the same commit would give a different suite, and ID, there.
+    """
+    spellings: dict[str, str] = {}
+    for file in files:
+        parts = file.path.split("/")
+        for end in range(1, len(parts) + 1):
+            name = "/".join(parts[:end])
+            seen = spellings.setdefault(name.lower(), name)
+            if seen != name:
+                message = (
+                    f"eval file names {seen!r} and {name!r} are not portable: they differ only "
+                    "in case, so macOS and Windows treat them as the same"
+                )
+                raise ValueError(message)
+
+
 class AgentSnapshot(ConfigModel):
     """Everything that defines one version of an agent, and nothing else.
 
@@ -134,6 +154,7 @@ class AgentSnapshot(ConfigModel):
             if previous.path == current.path:
                 message = f"duplicate eval file {current.path!r}"
                 raise ValueError(message)
+        _check_case_portable(ordered)
         return ordered
 
     @model_validator(mode="after")
@@ -257,8 +278,8 @@ def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
     A suite is a folder, read recursively, or a single file. Names starting with a dot
     (`.gitkeep`, `.DS_Store`, `.pytest_cache/`), `__pycache__/` folders and `*.pyc` files are
     skipped: they are tooling noise, not part of the Quality Gate. Everything else must be a
-    regular UTF-8 text file (see `build_snapshot`), and no two names may differ only in case,
-    which macOS and Windows would check out as one.
+    regular UTF-8 text file (see `build_snapshot`). Names that differ only in case are refused
+    when the snapshot is built.
 
     Args:
         suite: The suite folder or file.
@@ -268,8 +289,8 @@ def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
         suite holds one file named after itself.
 
     Raises:
-        SnapshotError: If the suite is missing, a folder in it cannot be listed, it holds a
-            link or a file that is not text, or two names in it differ only in case.
+        SnapshotError: If the suite is missing, a folder in it cannot be listed, or it holds a
+            link or a file that is not text.
     """
     if suite.is_symlink() or not suite.exists():
         message = "eval suite is a symbolic link" if suite.is_symlink() else "eval suite not found"
@@ -287,7 +308,6 @@ def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
             if not _skipped(name, is_dir=False):
                 file = folder / name
                 files.append(_eval_file(file.relative_to(suite).as_posix(), file))
-    _check_case_portable(suite, files)
     return tuple(sorted(files, key=lambda file: file.path))
 
 
@@ -295,26 +315,6 @@ def _unlistable(error: OSError) -> NoReturn:
     folder = Path(error.filename) if isinstance(error.filename, str) else None
     message = f"cannot be read: {error.strerror or error}"
     raise SnapshotError(message, folder) from error
-
-
-def _check_case_portable(suite: Path, files: Sequence[EvalFile]) -> None:
-    """Refuse names that a case-insensitive file system would merge into one.
-
-    macOS and Windows check out `Case.yaml` and `case.yaml`, or `Cases/` and `cases/`, as one
-    file or folder, so the same commit would give a different suite, and ID, there.
-    """
-    spellings: dict[str, str] = {}
-    for file in sorted(files, key=lambda file: file.path):
-        parts = file.path.split("/")
-        for end in range(1, len(parts) + 1):
-            name = "/".join(parts[:end])
-            seen = spellings.setdefault(name.lower(), name)
-            if seen != name:
-                message = (
-                    f"file names {seen!r} and {name!r} are not portable: they differ only in "
-                    "case, so macOS and Windows treat them as the same"
-                )
-                raise SnapshotError(message, suite)
 
 
 def _eval_file(path: str, file: Path) -> EvalFile:
@@ -372,8 +372,9 @@ def build_snapshot(
 
     Raises:
         SnapshotError: If a file is missing, not regular, not UTF-8 text or reached through a
-            symbolic link, a contract schema is missing, or the content cannot be represented
-            exactly in JSON.
+            symbolic link, a folder cannot be listed, two eval file names differ only in case,
+            a contract schema is missing, or the content cannot be represented exactly in
+            JSON.
     """
     input_schema = _schema(contract_schemas, agent.brief.input, "input")
     output_schema = _schema(contract_schemas, agent.brief.output, "output")
