@@ -261,6 +261,25 @@ def test_publish_refuses_a_linked_agent_folder(example_project: Path, tmp_path: 
     ]
 
 
+def test_publish_refuses_a_linked_agents_folder(example_project: Path, tmp_path: Path) -> None:
+    # Validation would resolve the contracts of the project the link points into, while the
+    # snapshot took this project's: the version would hold schemas nobody validated.
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "agents").symlink_to(example_project / "agents", target_is_directory=True)
+    (project / "contracts.py").write_text(
+        "from pydantic import BaseModel\n\n\n"
+        "class TaskList(BaseModel):\n    other: int\n\n\n"
+        "class CodeChanges(BaseModel):\n    other: int\n"
+    )
+
+    with pytest.raises(PublishError) as raised:
+        _publish(project)
+
+    assert _issues(raised.value, project) == ["agents: symbolic links are not followed"]
+    assert not (project / STATE_DIR).exists()
+
+
 def test_publish_reports_a_missing_agent_folder(example_project: Path) -> None:
     with pytest.raises(PublishError) as raised:
         publish(example_project, "ghost", author="ada", message="m", now=WHEN)

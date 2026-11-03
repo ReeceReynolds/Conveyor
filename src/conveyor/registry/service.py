@@ -227,7 +227,9 @@ def snapshot_working_copy(project_root: Path, name: str) -> AgentSnapshot:
     folder = project_root / AGENTS_DIR / check_agent_name(name)
     # Links are refused everywhere in an agent (ADR 0013), including the folder itself and
     # its agent.yaml: a linked folder would be validated against another project's contracts.
-    for path in (folder, folder / AGENT_FILE):
+    # A linked `agents/` does the same to every agent in it, and the snapshot would then hold
+    # this project's schemas while validation had checked the other project's.
+    for path in (project_root / AGENTS_DIR, folder, folder / AGENT_FILE):
         if path.is_symlink():
             issue = Issue(file=path, message="symbolic links are not followed")
             raise PublishError(name, [issue])
