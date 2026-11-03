@@ -2,6 +2,7 @@
 
 import getpass
 import re
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import pytest
 from inline_snapshot import snapshot
 from typer.testing import CliRunner, Result
 
-from conveyor.cli import Clock, app
+from conveyor.cli import NEVER_PUBLISHED, Clock, app
 from conveyor.storage import STATE_DIR, Store
 
 runner = CliRunner()
@@ -415,6 +416,81 @@ def test_an_unusable_state_folder_is_reported(project: Path) -> None:
         assert result.output == snapshot(
             "The registry in . cannot be read: cannot use .conveyor: not a folder\n"
         )
+
+
+# --- list -------------------------------------------------------------------------------------
+
+
+def _blank_ids(output: str) -> str:
+    return re.sub(r"\b[0-9a-f]{12}\b", "<short id12>", output)
+
+
+def test_list_shows_every_agent_and_its_latest_version(project: Path) -> None:
+    _agent("publish", "implementer", "-m", "initial")
+    _switch_model(project)
+    _agent("publish", "implementer", "-m", "Switch to GPT-5", minutes=1)
+    _agent("publish", "task-planner", "-m", "initial", "--author", "Ada Lovelace", minutes=2)
+
+    result = _agent("list")
+
+    assert result.exit_code == 0
+    assert _blank_ids(result.output) == snapshot("""\
+code-reviewer         (never published)
+implementer           v2  <short id12>  2026-10-28 12:01  ada
+requirements-analyst  (never published)
+task-planner          v1  <short id12>  2026-10-28 12:02  Ada Lovelace
+""")
+
+
+def test_list_marks_a_published_agent_whose_folder_is_gone(project: Path) -> None:
+    _agent("publish", "task-planner", "-m", "initial")
+    shutil.rmtree(project / "agents" / "task-planner")
+    (project / "agents" / "notes").mkdir()
+
+    result = _agent("list")
+
+    assert result.exit_code == 0
+    assert _blank_ids(result.output).splitlines()[-1] == snapshot(
+        "task-planner          v1  <short id12>  2026-10-28 12:00  ada  (no folder in agents/)"
+    )
+    assert "notes" not in result.output
+
+
+def test_list_without_a_registry_creates_nothing(project: Path) -> None:
+    result = _agent("list")
+
+    assert result.exit_code == 0
+    assert result.output.count(NEVER_PUBLISHED) == 4
+    assert not (project / STATE_DIR).exists()
+
+
+def test_list_of_a_project_without_agents(tmp_path: Path) -> None:
+    (tmp_path / "agents").mkdir()
+
+    result = _agent("list", "--project", str(tmp_path))
+
+    assert result.exit_code == 0
+    assert result.output == f"no agents in {tmp_path / 'agents'}/\n"
+
+
+def test_list_refuses_a_folder_that_is_not_a_project(tmp_path: Path) -> None:
+    result = _agent("list", "--project", str(tmp_path))
+
+    assert result.exit_code == 2
+    assert "is not a Conveyor project" in _plain(result.output)
+
+
+def test_list_reports_an_unreadable_registry(project: Path) -> None:
+    (project / STATE_DIR).mkdir()
+    (project / STATE_DIR / "conveyor.db").write_text("not a database\n")
+
+    result = _agent("list")
+
+    assert result.exit_code == 1
+    assert result.output == snapshot(
+        "The registry in . cannot be read: the registry database cannot be used: file is "
+        "not a database\n"
+    )
 
 
 # --- diff -------------------------------------------------------------------------------------

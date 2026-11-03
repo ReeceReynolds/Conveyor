@@ -36,6 +36,7 @@ from conveyor.storage import (
     AgentVersionRecord,
     AmbiguousVersionError,
     InvalidPrefixError,
+    RegistryNotFoundError,
     StorageError,
     Store,
     VersionNotFoundError,
@@ -162,6 +163,18 @@ class PublishResult(BaseModel):
             "was published."
         )
     )
+
+
+class AgentListing(BaseModel):
+    """One agent of a project: its folder, its latest version, or both."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(description="The agent's name.")
+    latest: AgentVersionRecord | None = Field(
+        description="The newest published version; `None` if the agent was never published."
+    )
+    has_folder: bool = Field(description=f"Whether `{AGENTS_DIR}/<name>/{AGENT_FILE}` exists.")
 
 
 @dataclass(frozen=True)
@@ -357,6 +370,42 @@ def diff_versions(store: Store, name: str, old: Side, new: Side) -> VersionDiff:
         old_label=old_label,
         new_label=new_label,
         diff=diff_snapshots(old_snapshot, new_snapshot),
+    )
+
+
+def list_agents(project_root: Path) -> tuple[AgentListing, ...]:
+    """List a project's agents: every agent folder and every agent with published versions.
+
+    The store is opened read-only, so listing never creates or migrates `.conveyor/`; a
+    project without one has nothing published.
+
+    Args:
+        project_root: The project holding `agents/` and `.conveyor/`.
+
+    Returns:
+        The agents, sorted by name. An agent folder is any folder in `agents/` holding an
+        `agent.yaml`, valid or not.
+
+    Raises:
+        StorageError: If the store exists but cannot be read.
+    """
+    folders = {
+        folder.name
+        for folder in (project_root / AGENTS_DIR).glob("*")
+        if (folder / AGENT_FILE).is_file()
+    }
+    latest: dict[str, AgentVersionRecord] = {}
+    try:
+        with Store.open(project_root, read_only=True) as store:
+            for name in store.registry.agents():
+                if (record := store.registry.latest(name)) is not None:
+                    latest[name] = record
+    except RegistryNotFoundError:
+        # Nothing was ever published here; the agent folders are still listed.
+        pass
+    return tuple(
+        AgentListing(name=name, latest=latest.get(name), has_folder=name in folders)
+        for name in sorted(folders | latest.keys())
     )
 
 
