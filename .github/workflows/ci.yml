@@ -21,6 +21,11 @@ jobs:
       run:
         # Git Bash on Windows, so every runner runs the same commands with pipefail and tee.
         shell: bash
+    env:
+      # UTF-8 mode (the default from Python 3.15, PEP 686): Windows otherwise writes output in
+      # cp1252, and tools printing characters such as the arrows in the import-linter
+      # contract names fail with UnicodeEncodeError.
+      PYTHONUTF8: "1"
     strategy:
       fail-fast: false
       matrix:
