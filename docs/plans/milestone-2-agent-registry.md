@@ -29,7 +29,7 @@ Eval file names that differ only in case hashed differently on macOS and Windows
 two changes in the diff summary. A multi-line publish author broke `history`. ADR 0013 records
 the new reading rules.
 
-Follow-ups from the independent review: #19–#23.
+Follow-ups from the independent review: #19–#23, all done in #31.
 
 ADR numbers 0011–0013 are taken by this milestone's work packages.
 
