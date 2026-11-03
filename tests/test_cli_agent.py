@@ -179,12 +179,26 @@ def test_publish_needs_an_author_when_the_user_is_unknown(monkeypatch: pytest.Mo
     assert accepted.exit_code == 0
 
 
+@pytest.mark.parametrize("user", ["", "ada\nlovelace"])
+@pytest.mark.usefixtures("project")
+def test_publish_needs_an_author_when_the_user_name_is_unusable(
+    monkeypatch: pytest.MonkeyPatch, user: str
+) -> None:
+    monkeypatch.setattr(getpass, "getuser", lambda: user)
+
+    refused = _agent("publish", "implementer", "-m", "initial")
+
+    assert refused.exit_code == 2
+    assert "pass --author" in _plain(refused.output)
+
+
 @pytest.mark.parametrize(
     ("args", "message"),
     [
         (["publish", "implementer"], "Missing option '--message'"),
         (["publish", "implementer", "-m", "  "], "must not be blank"),
         (["publish", "implementer", "-m", "m", "--author", ""], "must not be blank"),
+        (["publish", "implementer", "-m", "m", "--author", "a\nb"], "must be one line of text"),
         (["publish", "Implementer", "-m", "m"], "not an agent name"),
         (["publish", "../implementer", "-m", "m"], "not an agent name"),
         (["history", "a/b"], "not an agent name"),

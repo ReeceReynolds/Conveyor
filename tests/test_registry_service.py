@@ -349,6 +349,9 @@ class _Arguments(NamedTuple):
     [
         (_Arguments(message="  "), "a publish message is required"),
         (_Arguments(author=""), "a publish author is required"),
+        # `history` prints one author per line; a line break or escape code would break it.
+        (_Arguments(author="ada\nlovelace"), "a publish author must be one line of text"),
+        (_Arguments(author="\x1b[31mada"), "a publish author must be one line of text"),
         (_Arguments(now=WHEN.replace(tzinfo=None)), "the publish time must be timezone-aware"),
         (_Arguments(name="../implementer"), "not an agent name: '../implementer'"),
     ],
