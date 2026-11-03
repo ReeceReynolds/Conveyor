@@ -1,7 +1,9 @@
 """Agent snapshots and diffs: building from folders, identity, and how changes are described."""
 
+import errno
+import os
 import shutil
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import get_args
 
@@ -349,6 +351,55 @@ def test_build_snapshot_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             ),
             "unreadable instructions": ("implementer/prompt.md: cannot be read: Permission denied"),
         }
+    )
+
+
+@pytest.mark.parametrize("unreadable", ["evals", "evals/cases"])
+def test_an_unreadable_eval_folder_is_an_error_not_an_empty_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unreadable: str
+) -> None:
+    # Skipping the folder would publish a version whose eval cases silently vanished.
+    _layout(tmp_path, {"prompt.md": b"Go.\n", "evals/cases/a.yaml": b"x: 1\n"})
+    refused = tmp_path / unreadable
+    scandir = os.scandir
+
+    def refuse(path: str) -> Iterator[os.DirEntry[str]]:
+        if Path(path) == refused:
+            raise PermissionError(errno.EACCES, "Permission denied", path)
+        return scandir(path)
+
+    # `os.walk` lists folders with `os.scandir`; running as root would ignore a chmod.
+    monkeypatch.setattr(os, "scandir", refuse)
+
+    with pytest.raises(SnapshotError) as caught:
+        build_snapshot(tmp_path, BASE.agent, _schemas())
+
+    assert caught.value.file == refused
+    assert str(caught.value).endswith(": cannot be read: Permission denied")
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "clash"),
+    [
+        ("Case.yaml", "case.yaml", "'Case.yaml' and 'case.yaml'"),
+        ("Cases/a.yaml", "cases/b.yaml", "'Cases' and 'cases'"),
+        ("A/x.yaml", "a", "'A' and 'a'"),
+    ],
+)
+def test_eval_file_names_differing_only_in_case_are_not_portable(
+    tmp_path: Path, first: str, second: str, clash: str
+) -> None:
+    # A case-insensitive checkout (macOS, Windows) merges them, so one commit would hash two
+    # ways, as with a backslash in a name.
+    _layout(tmp_path, {"prompt.md": b"Go.\n", f"evals/{first}": b"x: 1\n"})
+    _layout(tmp_path, {f"evals/{second}": b"x: 2\n"})
+
+    with pytest.raises(SnapshotError) as caught:
+        build_snapshot(tmp_path, BASE.agent, _schemas())
+
+    assert str(caught.value) == (
+        f"{tmp_path / 'evals'}: file names {clash} are not portable: they differ only in case,"
+        " so macOS and Windows treat them as the same"
     )
 
 

@@ -11,10 +11,10 @@ and passed in.
 
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
-from typing import Literal, Self
+from typing import Literal, NoReturn, Self
 
 from pydantic import Field, JsonValue, ValidationError, field_validator, model_validator
 
@@ -257,7 +257,8 @@ def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
     A suite is a folder, read recursively, or a single file. Names starting with a dot
     (`.gitkeep`, `.DS_Store`, `.pytest_cache/`), `__pycache__/` folders and `*.pyc` files are
     skipped: they are tooling noise, not part of the Quality Gate. Everything else must be a
-    regular UTF-8 text file (see `build_snapshot`).
+    regular UTF-8 text file (see `build_snapshot`), and no two names may differ only in case,
+    which macOS and Windows would check out as one.
 
     Args:
         suite: The suite folder or file.
@@ -267,7 +268,8 @@ def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
         suite holds one file named after itself.
 
     Raises:
-        SnapshotError: If the suite is missing, or holds a link or a file that is not text.
+        SnapshotError: If the suite is missing, a folder in it cannot be listed, it holds a
+            link or a file that is not text, or two names in it differ only in case.
     """
     if suite.is_symlink() or not suite.exists():
         message = "eval suite is a symbolic link" if suite.is_symlink() else "eval suite not found"
@@ -276,14 +278,43 @@ def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
         return (_eval_file(suite.name, suite),)
 
     files: list[EvalFile] = []
-    for folder, dirs, names in suite.walk():
+    # `walk` skips folders it cannot list unless told otherwise, which would drop their eval
+    # cases from the version without a word.
+    for folder, dirs, names in suite.walk(on_error=_unlistable):
         # Prune in place so skipped folders are never entered.
         dirs[:] = [name for name in dirs if not _skipped(name, is_dir=True)]
         for name in names:
             if not _skipped(name, is_dir=False):
                 file = folder / name
                 files.append(_eval_file(file.relative_to(suite).as_posix(), file))
+    _check_case_portable(suite, files)
     return tuple(sorted(files, key=lambda file: file.path))
+
+
+def _unlistable(error: OSError) -> NoReturn:
+    folder = Path(error.filename) if isinstance(error.filename, str) else None
+    message = f"cannot be read: {error.strerror or error}"
+    raise SnapshotError(message, folder) from error
+
+
+def _check_case_portable(suite: Path, files: Sequence[EvalFile]) -> None:
+    """Refuse names that a case-insensitive file system would merge into one.
+
+    macOS and Windows check out `Case.yaml` and `case.yaml`, or `Cases/` and `cases/`, as one
+    file or folder, so the same commit would give a different suite, and ID, there.
+    """
+    spellings: dict[str, str] = {}
+    for file in sorted(files, key=lambda file: file.path):
+        parts = file.path.split("/")
+        for end in range(1, len(parts) + 1):
+            name = "/".join(parts[:end])
+            seen = spellings.setdefault(name.lower(), name)
+            if seen != name:
+                message = (
+                    f"file names {seen!r} and {name!r} are not portable: they differ only in "
+                    "case, so macOS and Windows treat them as the same"
+                )
+                raise SnapshotError(message, suite)
 
 
 def _eval_file(path: str, file: Path) -> EvalFile:
