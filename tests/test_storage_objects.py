@@ -15,6 +15,7 @@ from conveyor.storage import (
     InvalidDigestError,
     ObjectNotFoundError,
     ObjectStore,
+    StateUnavailableError,
 )
 from conveyor.storage import objects as objects_module
 from conveyor.storage.objects import sync_directory
@@ -224,8 +225,48 @@ def test_failed_write_leaves_nothing_behind(
 
     monkeypatch.setattr(Path, "replace", fail)
 
-    with pytest.raises(OSError, match="disk full"):
+    with pytest.raises(StateUnavailableError) as caught:
         objects.put(b"hello")
+
+    assert caught.value.reason == "disk full"
+    assert caught.value.path == objects.root / HELLO_DIGEST[:2] / HELLO_DIGEST[2:]
 
     assert _files(objects.root) == []
     assert not objects.exists(HELLO_DIGEST)
+
+
+def test_a_full_disk_is_reported_with_the_operating_systems_reason(
+    objects: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(_descriptor: int) -> None:
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+    monkeypatch.setattr(os, "fsync", fail)
+
+    with pytest.raises(StateUnavailableError) as caught:
+        objects.put(b"hello")
+
+    assert caught.value.reason == os.strerror(errno.ENOSPC)
+    assert _files(objects.root) == []
+
+
+def test_an_unreadable_object_is_a_storage_error(objects: ObjectStore) -> None:
+    path = objects.root / HELLO_DIGEST[:2] / HELLO_DIGEST[2:]
+    path.mkdir(parents=True)
+
+    with pytest.raises(StateUnavailableError) as caught:
+        objects.get(HELLO_DIGEST)
+
+    assert caught.value.path == path
+    assert caught.value.reason == os.strerror(errno.EISDIR)
+
+
+def test_a_file_where_a_fan_out_folder_goes_is_a_storage_error(objects: ObjectStore) -> None:
+    (objects.root / HELLO_DIGEST[:2]).write_text("in the way\n")
+
+    with pytest.raises(StateUnavailableError, match="not a folder"):
+        objects.put(b"hello")
+    with pytest.raises(StateUnavailableError) as caught:
+        objects.get(HELLO_DIGEST)
+
+    assert caught.value.reason == os.strerror(errno.ENOTDIR)

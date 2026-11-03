@@ -1,6 +1,7 @@
 """Errors raised by the storage layer. Each is specific enough to act on without parsing text."""
 
 from collections.abc import Iterable
+from pathlib import Path
 
 
 class StorageError(Exception):
@@ -43,6 +44,28 @@ class DatabaseUnavailableError(StorageError):
         """
         self.reason = reason
         super().__init__(f"the registry database cannot be used: {reason}")
+
+
+class StateUnavailableError(StorageError):
+    """Raised when a file or folder of the local state cannot be read or written.
+
+    For example, `.conveyor/` is a file or cannot be written, or the disk is full.
+
+    Attributes:
+        path: The file or folder that failed.
+        reason: The operating system's own one-line explanation.
+    """
+
+    def __init__(self, path: Path, reason: str) -> None:
+        """Create the error.
+
+        Args:
+            path: The file or folder that failed.
+            reason: The operating system's own one-line explanation.
+        """
+        self.path = path
+        self.reason = reason
+        super().__init__(f"cannot use {path}: {reason}")
 
 
 class InvalidDigestError(StorageError, ValueError):

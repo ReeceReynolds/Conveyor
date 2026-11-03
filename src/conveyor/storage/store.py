@@ -8,7 +8,7 @@ from sqlalchemy import URL, Engine
 
 from conveyor.storage.database import connect, database_errors, writer
 from conveyor.storage.migrate import upgrade
-from conveyor.storage.objects import ObjectStore
+from conveyor.storage.objects import ObjectStore, file_errors
 from conveyor.storage.registry import RegistryRepository
 
 STATE_DIR: Final = ".conveyor"
@@ -70,12 +70,15 @@ class Store:
 
         Raises:
             IncompatibleSchemaError: If a newer Conveyor migrated the database.
+            StateUnavailableError: If `.conveyor/` cannot be created or written, for example
+                because it is a file.
         """
         state = project_root / STATE_DIR
-        state.mkdir(parents=True, exist_ok=True)
-        ignore = state / ".gitignore"
-        if not ignore.exists():
-            ignore.write_text(_SELF_IGNORE, encoding="utf-8")
+        with file_errors(state):
+            state.mkdir(parents=True, exist_ok=True)
+            ignore = state / ".gitignore"
+            if not ignore.exists():
+                ignore.write_text(_SELF_IGNORE, encoding="utf-8")
         url = URL.create("sqlite", database=str(state / DATABASE_FILE))
         return cls.open_url(url.render_as_string(hide_password=False), state / OBJECTS_DIR)
 
@@ -93,6 +96,7 @@ class Store:
         Raises:
             UnsupportedDatabaseError: If the URL names another backend.
             IncompatibleSchemaError: If a newer Conveyor migrated the database.
+            StateUnavailableError: If `objects_dir` cannot be created.
         """
         return cls(connect(url), ObjectStore(objects_dir))
 
