@@ -1,5 +1,8 @@
 # Milestone 2 — Agent registry and versioning
 
+- Status: Done; lands on `main` with #24
+- Integration branch: `milestone/agent-registry`
+
 **Goal:** `conveyor agent publish <name> -m "message"` turns an agent folder into an immutable,
 content-addressed version, and `conveyor agent diff` explains any change in factory-model
 terms, e.g. *"implementer v4 → v5: Capabilities changed; model profile changed; model switched"*.
@@ -11,8 +14,16 @@ terms, e.g. *"implementer v4 → v5: Capabilities changed; model profile changed
 | M0 — Bootstrap | uv workspace, Ruff, Pyright strict, pytest + Hypothesis + inline-snapshot, CI, release-please, UI scaffold, ADRs 0001–0007 | #1, #2 |
 | M1 — Factory model | Strict Pydantic models for agents and factories, YAML loading with file:line:column errors, JSON Schemas, `conveyor validate`, PRD → PR example (placeholder prompts, no contracts), ADRs 0008–0010 | #3, #4 |
 
-Nothing executes yet, and nothing is versioned. Contract references (`contracts.TaskList`) are
-validated as dotted names only; no `contracts.py` exists in the example.
+| Work package | Branch | State |
+|---|---|---|
+| WP-A — Contract resolution | `feat/contract-resolution` | Done (#11) |
+| WP-B — Storage foundation | `feat/storage` | Done; lands through #16, which stacks it (#12) |
+| WP-C — Agent snapshots and structured diffs | `feat/agent-snapshots` | Done (#13, review fixes #14) |
+| WP-D — Registry service and CLI | `feat/registry-cli` | Done, with the independent review's fixes (#16) |
+
+Follow-ups from the independent review: #19–#23.
+
+ADR numbers 0011–0013 are taken by this milestone's work packages.
 
 ## Why the registry comes next
 

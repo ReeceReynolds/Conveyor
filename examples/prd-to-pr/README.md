@@ -28,4 +28,18 @@ already passes validation, contracts included, and doubles as a test fixture:
 uv run conveyor validate examples/prd-to-pr
 ```
 
+To version the agents, publish them from this folder (or pass `--project examples/prd-to-pr`
+from the repository root). Versions are stored in `.conveyor/` here, which is never committed:
+
+```bash
+for agent in requirements-analyst task-planner implementer code-reviewer; do
+  uv run conveyor agent publish "$agent" -m "Initial version"
+done
+uv run conveyor agent history implementer
+```
+
+Then edit an agent, for example `capabilities.model.id` in `agents/implementer/agent.yaml`, and
+run `uv run conveyor agent diff implementer --working` to see what publishing it would record.
+Delete `.conveyor/` to start again.
+
 It is a uv workspace member that is not published.

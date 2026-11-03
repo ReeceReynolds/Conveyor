@@ -14,7 +14,7 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "vitest run",
-    "check": "biome ci . && tsc --noEmit && vitest run && vite build"
+    "check": "biome ci --error-on-warnings . && tsc --noEmit && vitest run && vite build"
   },
   "dependencies": {
     "react": "^19.3.1",

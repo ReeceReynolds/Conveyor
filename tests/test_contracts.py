@@ -10,7 +10,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from inline_snapshot import snapshot
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, ValidationError
 from pydantic_core import SchemaError
 
 from conveyor.contracts import (
@@ -20,8 +20,9 @@ from conveyor.contracts import (
     resolve_contract_schemas,
 )
 from conveyor.contracts.resolver import RESERVED_MODULES, describe, first_line
-from conveyor.contracts.schema import DIALECT
+from conveyor.contracts.schema import DIALECT, inexact_value
 from conveyor.model import load_agent_file
+from conveyor.registry.canonical import CanonicalFormError, canonical_json
 
 FIXTURES = Path(__file__).parent / "fixtures" / "projects"
 PROJECT = FIXTURES / "contracts"
@@ -321,6 +322,60 @@ def test_model_without_json_schema_is_a_resolution_error() -> None:
         "it: PydanticInvalidForJsonSchema: Cannot generate a JsonSchema for "
         "core_schema.CallableSchema"
     )
+
+
+def test_schema_with_a_value_json_cannot_carry_is_a_resolution_error() -> None:
+    with pytest.raises(ContractResolutionError) as caught:
+        resolve_contract_schemas(PROJECT, ["contracts.wide.Counter"])
+
+    assert str(caught.value) == snapshot(
+        "cannot resolve contract 'contracts.wide.Counter': its JSON Schema has a value JSON "
+        "cannot carry exactly: integer 9223372036854775807 exceeds 2**53 - 1 at "
+        "/properties/count/maximum"
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "problem"),
+    [
+        ({"a": [1, 2**53 - 1, -(2**53 - 1), 1e20, True, None, "x"]}, None),
+        ({"a": [0, 2**53]}, "integer 9007199254740992 exceeds 2**53 - 1 at /a/1"),
+        (-(2**53), "integer -9007199254740992 exceeds 2**53 - 1"),
+        ({"x": {"y": float("nan")}}, "nan is not a JSON number at /x/y"),
+        ([float("-inf")], "-inf is not a JSON number at /0"),
+        ({"a/b~c": 2**60}, "integer 1152921504606846976 exceeds 2**53 - 1 at /a~1b~0c"),
+        ({"k": "\ud800"}, "string has a lone surrogate at /k"),
+        ({"\ud800": 1}, "string has a lone surrogate"),
+    ],
+)
+def test_inexact_value_names_the_value_and_its_pointer(
+    value: JsonValue, problem: str | None
+) -> None:
+    assert inexact_value(value) == problem
+
+
+_JSON = st.recursive(
+    st.none()
+    | st.booleans()
+    | st.integers(min_value=-(2**60), max_value=2**60)
+    | st.floats()
+    | st.text(alphabet=st.characters(min_codepoint=0xD7F0, max_codepoint=0xE010)),
+    lambda children: (
+        st.lists(children, max_size=4) | st.dictionaries(st.text(max_size=3), children, max_size=4)
+    ),
+    max_leaves=12,
+)
+
+
+@given(_JSON)
+def test_inexact_value_agrees_with_the_registrys_canonical_form(value: JsonValue) -> None:
+    # The check exists so `validate` refuses exactly what content IDs cannot be computed for.
+    try:
+        canonical_json(value)
+    except CanonicalFormError:
+        assert inexact_value(value) is not None
+    else:
+        assert inexact_value(value) is None
 
 
 def test_resolve_contract_schemas_dedupes_and_keeps_order() -> None:

@@ -393,9 +393,11 @@ def validate_document[M: ConfigModel](
     except ValidationError as error:
         issues = [_issue_from_error(document, details) for details in error.errors()]
         reported = {(issue.loc, issue.message) for issue in issues}
-        for violation in fallback(document.data) if fallback else ():
-            if (violation.loc, violation.message) not in reported:
-                issues.append(document.issue(violation.loc, violation.message))
+        issues.extend(
+            document.issue(violation.loc, violation.message)
+            for violation in (fallback(document.data) if fallback else ())
+            if (violation.loc, violation.message) not in reported
+        )
         raise ConfigError(issues) from None
 
 

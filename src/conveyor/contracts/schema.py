@@ -6,7 +6,8 @@ given model; key order follows field order, which is kept because it is meaningf
 reading the schema and to models generating structured output from it.
 """
 
-from collections.abc import Iterable
+import math
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from pydantic import BaseModel, JsonValue, TypeAdapter
@@ -18,6 +19,9 @@ type JsonSchema = dict[str, JsonValue]
 
 DIALECT = "https://json-schema.org/draft/2020-12/schema"
 """The JSON Schema dialect Pydantic generates; every contract schema declares it."""
+
+MAX_EXACT_INTEGER = 2**53 - 1
+"""Largest integer JSON carries exactly between implementations (RFC 8785, I-JSON)."""
 
 _JSON_SCHEMA = TypeAdapter[JsonSchema](JsonSchema)
 
@@ -44,7 +48,63 @@ def contract_schema(model: type[BaseModel]) -> JsonSchema:
         raise ContractResolutionError(ref, reason) from error
     # Validating as JSON data both types the result and copies it, so callers can't mutate
     # what Pydantic caches on the model.
-    return _JSON_SCHEMA.validate_python({"$schema": DIALECT, **schema})
+    result = _JSON_SCHEMA.validate_python({"$schema": DIALECT, **schema})
+    # The registry hashes schemas in canonical JSON, which cannot hold these values; report
+    # them here so `conveyor validate` catches what publishing would otherwise refuse.
+    problem = inexact_value(result)
+    if problem is not None:
+        ref = f"{model.__module__}.{model.__qualname__}"
+        reason = f"its JSON Schema has a value JSON cannot carry exactly: {problem}"
+        raise ContractResolutionError(ref, reason)
+    return result
+
+
+def inexact_value(value: JsonValue) -> str | None:
+    """Find the first value that has no exact, portable JSON form.
+
+    JSON parsers commonly read numbers as IEEE doubles, so integers beyond +/-(2**53 - 1)
+    lose precision, NaN and the infinities are not JSON at all, and a lone surrogate is not
+    valid Unicode. RFC 8785, which the registry uses for content IDs, rejects all of them.
+
+    Args:
+        value: Plain JSON data.
+
+    Returns:
+        A one-line description naming the first offending value and its JSON Pointer, or
+        `None` when every value is exact.
+    """
+    return next(_inexact_values(value, ""), None)
+
+
+def _inexact_values(value: JsonValue, pointer: str) -> Iterator[str]:
+    where = f" at {pointer}" if pointer else ""
+    match value:
+        case bool() | None:
+            pass
+        case int() if abs(value) > MAX_EXACT_INTEGER:
+            yield f"integer {value} exceeds 2**53 - 1{where}"
+        case float() if not math.isfinite(value):
+            yield f"{value} is not a JSON number{where}"
+        case str() if not _encodes(value):
+            yield f"string has a lone surrogate{where}"
+        case list():
+            for index, item in enumerate(value):
+                yield from _inexact_values(item, f"{pointer}/{index}")
+        case dict():
+            for key, item in value.items():
+                yield from _inexact_values(key, pointer)
+                escaped = key.replace("~", "~0").replace("/", "~1")
+                yield from _inexact_values(item, f"{pointer}/{escaped}")
+        case _:
+            pass
+
+
+def _encodes(text: str) -> bool:
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def resolve_contract_schemas(project_root: Path, refs: Iterable[str]) -> dict[str, JsonSchema]:

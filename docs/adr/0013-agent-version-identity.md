@@ -37,9 +37,12 @@ by the registry alongside the version, not in it. The agent's name is part of id
 
 **Reading files is strict.** Instructions and eval files must be regular UTF-8 text files.
 CRLF becomes LF and a leading byte order mark is dropped, so a Windows checkout hashes the
-same as a Linux one. Symbolic links are refused rather than followed: a link would bring
-content from outside the agent folder into its identity, and Git on Windows checks links out
-as small text files, so one commit would hash two ways.
+same as a Linux one. Symbolic links are refused everywhere in an agent rather than
+followed: the agent folder itself, its `agent.yaml`, every folder on the way to the
+instructions or the eval suite, and every file in the suite. A link would bring content from
+outside the agent folder into its identity (a linked agent folder would even be validated
+against another project's contracts), and Git on Windows checks links out as small text
+files, so one commit would hash two ways.
 
 **The canonical form is RFC 8785, the JSON Canonicalization Scheme (JCS)**, applied to the
 snapshot's JSON (`model_dump(mode="json")`) with the

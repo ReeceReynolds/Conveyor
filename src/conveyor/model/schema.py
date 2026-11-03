@@ -73,7 +73,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     """
     args = sys.argv[1:] if argv is None else argv
     for path in write_schemas(Path(args[0] if args else "schemas")):
-        print(f"wrote {path}")
+        sys.stdout.write(f"wrote {path}\n")
 
 
 if __name__ == "__main__":
