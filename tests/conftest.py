@@ -1,6 +1,7 @@
 import os
 import shutil
 import socket
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -70,7 +71,8 @@ def _docker_unavailable() -> str | None:
     host = get_docker_host() or DEFAULT_DOCKER_HOST
     url = urlsplit(host)
     try:
-        if url.scheme == "unix":
+        # Docker on Windows listens on a named pipe (npipe://), never on a Unix socket.
+        if url.scheme == "unix" and sys.platform != "win32":
             with socket.socket(socket.AF_UNIX) as probe:
                 probe.connect(url.path)
         elif url.scheme == "tcp" and url.hostname is not None:
