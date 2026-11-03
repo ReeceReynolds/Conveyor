@@ -290,18 +290,24 @@ Message:      initial
               With two eval files.
 
 agent.yaml
-    brief: {input: contracts.TaskList, instructions: prompt.md, output:
-        contracts.CodeChanges}
+    name: implementer
+    brief:
+      instructions: prompt.md
+      input: contracts.TaskList
+      output: contracts.CodeChanges
     capabilities:
       model:
-        id: anthropic/claude-sonnet
         provider: openrouter
-        routing:
-          allow_fallbacks: false
-          only: [anthropic]
+        id: anthropic/claude-sonnet
         temperature: 0.0
-    name: implementer
-    quality_gate: {min_pass_rate: 0.9, repeats: 3, suite: evals}
+        routing:
+          only:
+            - anthropic
+          allow_fallbacks: false
+    quality_gate:
+      suite: evals
+      min_pass_rate: 0.9
+      repeats: 3
 
 Instructions: prompt.md (146 bytes)
 Eval suite:   evals (2 files, 52 bytes)
