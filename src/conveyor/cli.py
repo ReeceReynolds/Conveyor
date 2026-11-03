@@ -33,6 +33,7 @@ from conveyor.registry import (
     WorkingCopy,
     check_agent_name,
     diff_versions,
+    is_one_line,
     load_snapshot,
     previous_version,
     publish,
@@ -154,6 +155,13 @@ def _required_text(value: str | None) -> str | None:
     return value
 
 
+def _one_line(value: str | None) -> str | None:
+    if value is not None and not is_one_line(_required_text(value) or ""):
+        message = "must be one line of text, with no line breaks or control characters"
+        raise typer.BadParameter(message)
+    return value
+
+
 NameArgument = Annotated[
     str,
     typer.Argument(
@@ -178,11 +186,14 @@ def _project(project: Path) -> Path:
 
 
 def _default_author() -> str:
+    message = "cannot tell who you are from the environment; pass --author"
     try:
-        return getpass.getuser()
+        user = getpass.getuser()
     except OSError:
-        message = "cannot tell who you are from the environment; pass --author"
         raise typer.BadParameter(message, param_hint="'--author'") from None
+    if not user.strip() or not is_one_line(user):
+        raise typer.BadParameter(message, param_hint="'--author'")
+    return user
 
 
 # --- Output -----------------------------------------------------------------------------------
@@ -283,7 +294,7 @@ def publish_command(
     ],
     author: Annotated[
         str | None,
-        typer.Option(callback=_required_text, help="Who is publishing. [default: your user name]"),
+        typer.Option(callback=_one_line, help="Who is publishing. [default: your user name]"),
     ] = None,
     project: ProjectOption = Path(),
 ) -> None:

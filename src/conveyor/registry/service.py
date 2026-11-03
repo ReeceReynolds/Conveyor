@@ -227,7 +227,9 @@ def snapshot_working_copy(project_root: Path, name: str) -> AgentSnapshot:
     folder = project_root / AGENTS_DIR / check_agent_name(name)
     # Links are refused everywhere in an agent (ADR 0013), including the folder itself and
     # its agent.yaml: a linked folder would be validated against another project's contracts.
-    for path in (folder, folder / AGENT_FILE):
+    # A linked `agents/` does the same to every agent in it, and the snapshot would then hold
+    # this project's schemas while validation had checked the other project's.
+    for path in (project_root / AGENTS_DIR, folder, folder / AGENT_FILE):
         if path.is_symlink():
             issue = Issue(file=path, message="symbolic links are not followed")
             raise PublishError(name, [issue])
@@ -370,6 +372,27 @@ def _require_text(value: str, what: str) -> None:
         raise ValueError(message)
 
 
+def is_one_line(text: str) -> bool:
+    """Whether text holds no line breaks, tabs or other control characters.
+
+    Args:
+        text: The text to check.
+
+    Returns:
+        `True` if every character is printable or a space.
+    """
+    return all(character == " " or character.isprintable() for character in text)
+
+
+def _require_line(value: str, what: str) -> None:
+    _require_text(value, what)
+    if not is_one_line(value):
+        # `history` prints one version per line, and a control character could rewrite the
+        # terminal it is printed to.
+        message = f"a publish {what} must be one line of text, got {value!r}"
+        raise ValueError(message)
+
+
 def publish(
     project_root: Path, name: str, *, author: str, message: str, now: datetime
 ) -> PublishResult:
@@ -390,7 +413,7 @@ def publish(
         project_root: The project holding `agents/` and the contract modules; its state lives
             in `<project_root>/.conveyor/`.
         name: The agent's name.
-        author: Who is publishing.
+        author: Who is publishing; one line of text.
         message: Why; must not be blank.
         now: When, as a timezone-aware datetime.
 
@@ -398,13 +421,13 @@ def publish(
         The version and whether it was created, with the diff from the previous version.
 
     Raises:
-        ValueError: If `name` is not an agent name, `author` or `message` is blank, or `now`
-            is naive.
+        ValueError: If `name` is not an agent name, `author` or `message` is blank, `author`
+            is not one line of printable text, or `now` is naive.
         PublishError: If the agent folder is invalid.
         StorageError: If the store cannot be opened, or the previous snapshot is corrupt.
     """
     _require_text(message, "message")
-    _require_text(author, "author")
+    _require_line(author, "author")
     if now.utcoffset() is None:
         error = f"the publish time must be timezone-aware, got {now.isoformat()}"
         raise ValueError(error)

@@ -1,7 +1,9 @@
 """Agent snapshots and diffs: building from folders, identity, and how changes are described."""
 
+import errno
+import os
 import shutil
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import get_args
 
@@ -29,6 +31,7 @@ from conveyor.registry import (
     snapshot_from_bytes,
     summarise,
 )
+from conveyor.registry import snapshot as snapshot_module
 from conveyor.registry.canonical import CanonicalFormError, canonical_json, load_canonical_json
 from conveyor.registry.diff import json_changes, text_diff
 
@@ -349,6 +352,82 @@ def test_build_snapshot_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             ),
             "unreadable instructions": ("implementer/prompt.md: cannot be read: Permission denied"),
         }
+    )
+
+
+@pytest.mark.parametrize("unreadable", ["evals", "evals/cases"])
+def test_an_unreadable_eval_folder_is_an_error_not_an_empty_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unreadable: str
+) -> None:
+    # Skipping the folder would publish a version whose eval cases silently vanished.
+    _layout(tmp_path, {"prompt.md": b"Go.\n", "evals/cases/a.yaml": b"x: 1\n"})
+    refused = tmp_path / unreadable
+    scandir = os.scandir
+
+    def refuse(path: str) -> Iterator[os.DirEntry[str]]:
+        if Path(path) == refused:
+            raise PermissionError(errno.EACCES, "Permission denied", path)
+        return scandir(path)
+
+    # `os.walk` lists folders with `os.scandir`; running as root would ignore a chmod.
+    monkeypatch.setattr(os, "scandir", refuse)
+
+    with pytest.raises(SnapshotError) as caught:
+        build_snapshot(tmp_path, BASE.agent, _schemas())
+
+    assert caught.value.file == refused
+    assert str(caught.value).endswith(": cannot be read: Permission denied")
+
+
+_CASE_CLASHES = [
+    (("Case.yaml", "case.yaml"), "'Case.yaml' and 'case.yaml'"),
+    (("Cases/a.yaml", "cases/b.yaml"), "'Cases' and 'cases'"),
+    (("A/x.yaml", "a"), "'A' and 'a'"),
+]
+"""Eval file paths a case-insensitive file system merges, and the names that clash."""
+
+
+def _not_portable(clash: str) -> str:
+    return (
+        f"eval file names {clash} are not portable: they differ only in case, so macOS and"
+        " Windows treat them as the same"
+    )
+
+
+@pytest.mark.parametrize(("paths", "clash"), _CASE_CLASHES)
+def test_eval_file_names_differing_only_in_case_are_not_portable(
+    paths: tuple[str, str], clash: str
+) -> None:
+    # A case-insensitive checkout (macOS, Windows) merges them, so one commit would hash two
+    # ways, as with a backslash in a name. Built from data: such a checkout cannot hold both.
+    files = [EvalFile.of(path, "x: 1\n") for path in paths]
+
+    with pytest.raises(ValidationError) as caught:
+        _edit(BASE, {"eval_files": [file.model_dump() for file in files]})
+
+    (error,) = caught.value.errors(include_url=False)
+    assert (error["loc"], error["msg"]) == (("eval_files",), f"Value error, {_not_portable(clash)}")
+
+
+@pytest.mark.parametrize(("paths", "clash"), _CASE_CLASHES)
+def test_build_snapshot_refuses_eval_names_differing_only_in_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, paths: tuple[str, str], clash: str
+) -> None:
+    (tmp_path / "prompt.md").write_text("Go.\n")
+    files = tuple(EvalFile.of(path, "x: 1\n") for path in paths)
+
+    # Stands in for reading a case-sensitive checkout, which this machine may not be.
+    def read_eval_suite(suite: Path) -> tuple[EvalFile, ...]:
+        assert suite == tmp_path / "evals"
+        return files
+
+    monkeypatch.setattr(snapshot_module, "read_eval_suite", read_eval_suite)
+
+    with pytest.raises(SnapshotError) as caught:
+        build_snapshot(tmp_path, BASE.agent, _schemas())
+
+    assert str(caught.value) == (
+        f"{tmp_path}: cannot snapshot agent 'implementer': eval_files: {_not_portable(clash)}"
     )
 
 
@@ -733,6 +812,52 @@ def test_every_kind_of_change_has_a_phrase() -> None:
             ),
         }
     )
+
+
+def test_a_contract_switch_reads_once_with_its_schema_changes() -> None:
+    # Switching a contract changes its schema too; that is one change, not two.
+    old = BASE
+    new = _edit(
+        BASE,
+        {"agent.brief.output": "contracts.Changes", "output_schema": CODE_CHANGES_V2},
+    )
+
+    assert _summary(old, new) == snapshot(
+        "implementer v1 → v2: Brief changed; contract pair changed; output contract switched"
+        " (contracts.CodeChanges → contracts.Changes)"
+    )
+    assert _render(old, new) == snapshot("""\
+implementer v1 → v2
+  Brief
+    contract pair
+      output contract switched (contracts.CodeChanges → contracts.Changes)
+        /properties/commits/items added ({"type": "string"})
+        /properties/commits/type changed ("integer" → "array")
+        /properties/pull_request_title added ({"type": "string"})
+        /required changed (["branch", "files"] → ["branch", "files", "pull_request_title"])
+""")
+
+
+def test_both_contracts_switched_keep_their_own_schema_changes() -> None:
+    new = _edit(
+        BASE,
+        {
+            "agent.brief.input": "contracts.Plan",
+            "agent.brief.output": "contracts.Changes",
+            "input_schema": {**TASK_LIST, "title": "Plan"},
+            "output_schema": {**CODE_CHANGES_V1, "title": "Changes"},
+        },
+    )
+
+    assert _render(BASE, new) == snapshot("""\
+implementer v1 → v2
+  Brief
+    contract pair
+      input contract switched (contracts.TaskList → contracts.Plan)
+        /title changed ("TaskList" → "Plan")
+      output contract switched (contracts.CodeChanges → contracts.Changes)
+        /title changed ("CodeChanges" → "Changes")
+""")
 
 
 def test_rename_renders_before_the_blocks() -> None:
