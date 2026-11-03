@@ -20,6 +20,14 @@ terms, e.g. *"implementer v4 → v5: Capabilities changed; model profile changed
 | WP-B — Storage foundation | `feat/storage` | Done; lands through #16, which stacks it (#12) |
 | WP-C — Agent snapshots and structured diffs | `feat/agent-snapshots` | Done (#13, review fixes #14) |
 | WP-D — Registry service and CLI | `feat/registry-cli` | Done, with the independent review's fixes (#16) |
+| Milestone review | `feat/brave-turing-f7k8xp` | Done (#29) |
+
+The milestone review (#29) fixed five problems found by probing the whole milestone against
+this plan and ADRs 0011–0014. An unreadable eval-suite folder was published as an empty one.
+Eval file names that differ only in case hashed differently on macOS and Windows. A linked
+`agents/` folder stored contract schemas that were never validated. A contract switch read as
+two changes in the diff summary. A multi-line publish author broke `history`. ADR 0013 records
+the new reading rules.
 
 Follow-ups from the independent review: #19–#23.
 
