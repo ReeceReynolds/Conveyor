@@ -29,6 +29,32 @@ class MigrationError(StorageError):
     """Raised when migrating the database fails for any reason other than a newer schema."""
 
 
+class MigrationRequiredError(StorageError):
+    """Raised when a store opened read-only has a database an older Conveyor wrote.
+
+    Read-only opening never migrates; opening the store for writing applies the migrations.
+    """
+
+
+class RegistryNotFoundError(StorageError):
+    """Raised when a store is opened read-only and the project has no database yet.
+
+    Nothing has been recorded in the project, so a read-only command has nothing to read.
+
+    Attributes:
+        database: Where the database would be.
+    """
+
+    def __init__(self, database: Path) -> None:
+        """Create the error.
+
+        Args:
+            database: Where the database would be.
+        """
+        self.database = database
+        super().__init__(f"no registry database at {database}")
+
+
 class DatabaseUnavailableError(StorageError):
     """Raised when the database cannot be used: not a database, locked too long, unreachable.
 

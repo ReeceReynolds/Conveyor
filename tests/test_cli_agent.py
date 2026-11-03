@@ -260,10 +260,51 @@ def test_history_aligns_columns_and_shows_first_message_lines(project: Path) -> 
 
 @pytest.mark.usefixtures("project")
 def test_history_of_an_unpublished_agent_fails() -> None:
+    _agent("publish", "task-planner", "-m", "initial")
+
     result = _agent("history", "implementer")
 
     assert result.exit_code == 1
     assert result.output == "agent 'implementer' has no published versions\n"
+
+
+@pytest.mark.parametrize(
+    ("args", "code"),
+    [
+        (("history", "implementer"), 1),
+        (("show", "implementer"), 1),
+        (("diff", "implementer"), 1),
+        (("diff", "implementer", "--working"), 1),
+        (("diff", "implementer", "--exit-code"), 2),
+    ],
+)
+def test_reading_a_project_with_nothing_published_creates_nothing(
+    project: Path, args: tuple[str, ...], code: int
+) -> None:
+    result = _agent(*args)
+
+    assert result.exit_code == code
+    assert result.output == ("nothing has been published yet: there is no registry in .conveyor/\n")
+    assert not (project / STATE_DIR).exists()
+
+
+def test_read_commands_write_nothing_to_the_registry(project: Path) -> None:
+    _agent("publish", "implementer", "-m", "initial")
+    _switch_model(project)
+    _agent("publish", "implementer", "-m", "Switch to GPT-5", minutes=1)
+    state = project / STATE_DIR
+    (state / ".gitignore").unlink()
+    before = {path: path.read_bytes() for path in state.rglob("*") if path.is_file()}
+
+    for args in (
+        ("history", "implementer"),
+        ("show", "implementer@v1"),
+        ("diff", "implementer"),
+        ("diff", "implementer", "v1", "--working"),
+    ):
+        assert _agent(*args).exit_code == 0, args
+
+    assert {path: path.read_bytes() for path in state.rglob("*") if path.is_file()} == before
 
 
 # --- show -------------------------------------------------------------------------------------
@@ -490,6 +531,8 @@ def test_diff_with_a_single_version_suggests_working(project: Path) -> None:
 
 @pytest.mark.usefixtures("project")
 def test_diff_of_an_unpublished_agent_fails() -> None:
+    _agent("publish", "task-planner", "-m", "initial")
+
     result = _agent("diff", "implementer", "--working")
 
     assert result.exit_code == 1

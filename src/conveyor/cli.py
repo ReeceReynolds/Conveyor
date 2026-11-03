@@ -40,7 +40,13 @@ from conveyor.registry import (
     resolve,
     short_id,
 )
-from conveyor.storage import AgentVersionRecord, StorageError, Store
+from conveyor.storage import (
+    STATE_DIR,
+    AgentVersionRecord,
+    RegistryNotFoundError,
+    StorageError,
+    Store,
+)
 
 app = typer.Typer(
     name="conveyor",
@@ -240,8 +246,14 @@ def _reporting(project: Path, outcome: str = "nothing done", code: int = FAILED)
         if error.problem is RefProblem.MALFORMED:
             raise typer.BadParameter(str(error)) from None
         _fail(str(error), code)
+    except RegistryNotFoundError:
+        _fail(_nothing_published(project), code)
     except (StorageError, SnapshotError) as error:
         _fail(f"The registry in {project} cannot be read: {error}", code)
+
+
+def _nothing_published(project: Path) -> str:
+    return f"nothing has been published yet: there is no registry in {project / STATE_DIR}/"
 
 
 def _version(record: AgentVersionRecord) -> str:
@@ -332,7 +344,7 @@ def history_command(name: NameArgument, project: ProjectOption = Path()) -> None
     first line of each message.
     """
     project = _project(project)
-    with _reporting(project), Store.open(project) as store:
+    with _reporting(project), Store.open(project, read_only=True) as store:
         records = store.registry.history(name)
     if not records:
         _fail(f"agent {name!r} has no published versions")
@@ -366,7 +378,7 @@ def show_command(
     name, at, ref = target.partition("@")
     name = _agent_name(name)
     project = _project(project)
-    with _reporting(project), Store.open(project) as store:
+    with _reporting(project), Store.open(project, read_only=True) as store:
         record = resolve(store, name, ref if at else None)
         snapshot = load_snapshot(store, record)
     for line in _show_lines(record, snapshot):
@@ -427,7 +439,7 @@ def diff_command(  # noqa: PLR0913
     failed = FAILED_WITH_EXIT_CODE if exit_code else FAILED
     with (
         _reporting(project, "cannot compare the working copy", failed),
-        Store.open(project) as store,
+        Store.open(project, read_only=True) as store,
     ):
         old: Side
         new: Side

@@ -1,6 +1,8 @@
 """Opening stores, migrations (including drift from the ORM models) and database settings."""
 
+import os
 import sqlite3
+import sys
 import threading
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta, timezone
@@ -21,6 +23,8 @@ from conveyor.storage import (
     DatabaseUnavailableError,
     IncompatibleSchemaError,
     MigrationError,
+    MigrationRequiredError,
+    RegistryNotFoundError,
     StateUnavailableError,
     Store,
     UnsupportedDatabaseError,
@@ -295,3 +299,123 @@ def test_utc_datetime_round_trips_and_refuses_naive_values() -> None:
     assert column.process_result_value(None, dialect) is None
     with pytest.raises(ValueError, match="naive"):
         column.process_bind_param(datetime(2026, 10, 28), dialect)  # noqa: DTZ001 -- must be refused
+
+
+# --- Opening read-only ------------------------------------------------------------------------
+
+
+def _published(project: Path) -> Store:
+    """Open a store on `project` with one version recorded; the caller closes it."""
+    store = Store.open(project)
+    store.registry.add_version(
+        agent="implementer",
+        content_id=DIGEST,
+        author="ada",
+        message="m",
+        snapshot_digest=store.objects.put(b"snapshot"),
+        created_at=datetime(2026, 10, 28, tzinfo=UTC),
+    )
+    return store
+
+
+def _state_files(project: Path) -> dict[Path, bytes]:
+    return {path: path.read_bytes() for path in (project / STATE_DIR).rglob("*") if path.is_file()}
+
+
+def test_read_only_open_of_a_project_without_a_registry_creates_nothing(tmp_path: Path) -> None:
+    with pytest.raises(RegistryNotFoundError) as caught:
+        Store.open(tmp_path, read_only=True)
+
+    assert caught.value.database == tmp_path / STATE_DIR / "conveyor.db"
+    assert str(caught.value) == f"no registry database at {tmp_path / STATE_DIR / 'conveyor.db'}"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_read_only_open_refuses_a_file_where_the_state_folder_goes(tmp_path: Path) -> None:
+    (tmp_path / STATE_DIR).write_text("in the way\n")
+
+    with pytest.raises(StateUnavailableError, match="not a folder"):
+        Store.open(tmp_path, read_only=True)
+
+
+def test_read_only_open_reads_and_refuses_writes_without_changing_a_file(tmp_path: Path) -> None:
+    _published(tmp_path).close()
+    (tmp_path / STATE_DIR / ".gitignore").unlink()
+    before = _state_files(tmp_path)
+
+    with Store.open(tmp_path, read_only=True) as store:
+        latest = store.registry.latest("implementer")
+        assert latest is not None
+        assert store.objects.get(latest.snapshot_digest) == b"snapshot"
+        with pytest.raises(DatabaseUnavailableError, match="readonly database"):
+            store.registry.add_version(
+                agent="implementer",
+                content_id="1" * 64,
+                author="ada",
+                message="m",
+                snapshot_digest=latest.snapshot_digest,
+                created_at=datetime(2026, 10, 29, tzinfo=UTC),
+            )
+
+    assert _state_files(tmp_path) == before
+
+
+def _never_writable(_folder: Path) -> bool:
+    return False
+
+
+@pytest.mark.parametrize("writer_open", [False, True], ids=["alone", "beside-a-writer"])
+def test_read_only_open_where_the_state_folder_cannot_be_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, writer_open: bool
+) -> None:
+    """Without -shm (no writer) it opens immutable; beside a writer, read-only on its -shm."""
+    writer = _published(tmp_path)
+    if not writer_open:
+        writer.close()
+    monkeypatch.setattr(database, "_writable", _never_writable)
+    try:
+        with Store.open(tmp_path, read_only=True) as store:
+            assert store.registry.agents() == ("implementer",)
+    finally:
+        writer.close()
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX folder permissions, which root ignores",
+)
+def test_read_only_open_works_in_a_read_only_folder(tmp_path: Path) -> None:
+    _published(tmp_path).close()
+    state = tmp_path / STATE_DIR
+    state.chmod(0o555)
+    try:
+        with Store.open(tmp_path, read_only=True) as store:
+            assert store.registry.agents() == ("implementer",)
+    finally:
+        state.chmod(0o755)
+
+
+def test_read_only_open_refuses_an_older_schema(tmp_path: Path) -> None:
+    with Store.open(tmp_path):
+        pass
+    engine = connect(f"sqlite:///{tmp_path / STATE_DIR / 'conveyor.db'}")
+    with engine.begin() as connection:
+        command.downgrade(alembic_config(connection), "base")
+    engine.dispose()
+
+    with pytest.raises(MigrationRequiredError, match="written by an older version of Conveyor"):
+        Store.open(tmp_path, read_only=True)
+    with Store.open(tmp_path) as store:
+        assert store.registry.agents() == ()
+
+
+def test_read_only_open_refuses_a_newer_schema(tmp_path: Path) -> None:
+    with Store.open(tmp_path):
+        pass
+    engine = connect(f"sqlite:///{tmp_path / STATE_DIR / 'conveyor.db'}")
+    with engine.begin() as connection:
+        connection.execute(text("UPDATE alembic_version SET version_num = '9999'"))
+    engine.dispose()
+
+    with pytest.raises(IncompatibleSchemaError, match="unknown revision '9999'"):
+        Store.open(tmp_path, read_only=True)

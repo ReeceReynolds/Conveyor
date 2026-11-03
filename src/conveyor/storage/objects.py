@@ -123,18 +123,21 @@ def sync_directory(directory: Path) -> None:
 class ObjectStore:
     """Immutable blobs addressed by the sha256 digest of their content."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, create: bool = True) -> None:
         """Open (and create, if needed) a store rooted at a directory.
 
         Args:
             root: The directory holding the fan-out subdirectories.
+            create: Whether to create the directory if it is missing. Without it, a missing
+                directory is an empty store until something is put into it.
 
         Raises:
             StateUnavailableError: If the directory cannot be created.
         """
         self.root = root
-        with file_errors(root):
-            root.mkdir(parents=True, exist_ok=True)
+        if create:
+            with file_errors(root):
+                root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, digest: str) -> Path:
         check_digest(digest)
