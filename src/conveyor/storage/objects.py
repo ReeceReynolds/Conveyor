@@ -5,7 +5,8 @@ characters (`objects/ab/cdef...`) so no directory grows unboundedly. Writes go t
 file in the destination directory, are fsynced and moved into place with `os.replace`, and the
 directory is fsynced too, so readers never see a partial object and a stored object survives a
 crash. The content is verified against its digest on every read, and an existing object is
-verified before a write of the same content is skipped.
+verified before a write of the same content is skipped. Operating system errors (a folder that
+cannot be written, a full disk) are raised as `StateUnavailableError`.
 """
 
 import errno
@@ -13,9 +14,16 @@ import hashlib
 import os
 import re
 import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 
-from conveyor.storage.errors import CorruptObjectError, InvalidDigestError, ObjectNotFoundError
+from conveyor.storage.errors import (
+    CorruptObjectError,
+    InvalidDigestError,
+    ObjectNotFoundError,
+    StateUnavailableError,
+)
 
 DIGEST_PATTERN = r"[0-9a-f]{64}"
 """A sha256 digest as stored: 64 lowercase hexadecimal characters."""
@@ -60,6 +68,33 @@ def check_digest(digest: str) -> str:
     return digest
 
 
+@contextmanager
+def file_errors(path: Path) -> Generator[None]:
+    """Report operating system errors from the local state as `StateUnavailableError`.
+
+    Otherwise a `.conveyor/` that is a file or read-only, or a full disk, surfaces as a bare
+    `OSError` with a traceback.
+
+    Args:
+        path: The file or folder being worked on, reported when the error names none.
+
+    Yields:
+        Nothing; wrap the file work in a `with` block.
+
+    Raises:
+        StateUnavailableError: If the block raises an `OSError`.
+    """
+    try:
+        yield
+    except OSError as error:
+        failed = Path(error.filename) if isinstance(error.filename, str) else path
+        reason = error.strerror or str(error)
+        if isinstance(error, FileExistsError):
+            # Only `mkdir(exist_ok=True)` raises it here, when a file is where a folder goes.
+            reason = "not a folder"
+        raise StateUnavailableError(failed, reason) from error
+
+
 def sync_directory(directory: Path) -> None:
     """Flush a directory's entries to disk, so a file just named in it survives a crash.
 
@@ -93,9 +128,13 @@ class ObjectStore:
 
         Args:
             root: The directory holding the fan-out subdirectories.
+
+        Raises:
+            StateUnavailableError: If the directory cannot be created.
         """
         self.root = root
-        root.mkdir(parents=True, exist_ok=True)
+        with file_errors(root):
+            root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, digest: str) -> Path:
         check_digest(digest)
@@ -112,11 +151,20 @@ class ObjectStore:
 
         Returns:
             The object's digest, 64 lowercase hexadecimal characters.
+
+        Raises:
+            StateUnavailableError: If the object cannot be read or written, for example
+                because the disk is full; nothing is left behind.
         """
         digest = digest_of(data)
         path = self._path(digest)
+        with file_errors(path):
+            self._write(path, digest, data)
+        return digest
+
+    def _write(self, path: Path, digest: str, data: bytes) -> None:
         if path.is_file() and digest_of(path.read_bytes()) == digest:
-            return digest
+            return
         new_directory = not path.parent.exists()
         path.parent.mkdir(exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
@@ -135,7 +183,6 @@ class ObjectStore:
         sync_directory(path.parent)
         if new_directory:
             sync_directory(self.root)
-        return digest
 
     def get(self, digest: str) -> bytes:
         """Read an object and verify that its content still matches its digest.
@@ -150,12 +197,15 @@ class ObjectStore:
             InvalidDigestError: If `digest` is malformed.
             ObjectNotFoundError: If no such object is stored.
             CorruptObjectError: If the stored bytes no longer hash to `digest`.
+            StateUnavailableError: If the object cannot be read, for example because its path
+                is a folder.
         """
         path = self._path(digest)
-        try:
-            data = path.read_bytes()
-        except FileNotFoundError:
-            raise ObjectNotFoundError(digest) from None
+        with file_errors(path):
+            try:
+                data = path.read_bytes()
+            except FileNotFoundError:
+                raise ObjectNotFoundError(digest) from None
         actual = digest_of(data)
         if actual != digest:
             raise CorruptObjectError(digest, actual)

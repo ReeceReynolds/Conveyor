@@ -21,6 +21,7 @@ from conveyor.storage import (
     DatabaseUnavailableError,
     IncompatibleSchemaError,
     MigrationError,
+    StateUnavailableError,
     Store,
     UnsupportedDatabaseError,
     database,
@@ -125,6 +126,18 @@ def test_a_file_that_is_not_a_database_is_refused(tmp_path: Path) -> None:
         Store.open(tmp_path)
 
     assert str(caught.value) == "the registry database cannot be used: file is not a database"
+
+
+@pytest.mark.parametrize("blocked", [STATE_DIR, f"{STATE_DIR}/objects"])
+def test_a_file_where_the_state_folders_go_is_refused(tmp_path: Path, blocked: str) -> None:
+    (tmp_path / blocked).parent.mkdir(exist_ok=True)
+    (tmp_path / blocked).write_text("in the way\n")
+
+    with pytest.raises(StateUnavailableError) as caught:
+        Store.open(tmp_path)
+
+    assert caught.value.path == tmp_path / blocked
+    assert str(caught.value) == f"cannot use {tmp_path / blocked}: not a folder"
 
 
 def test_a_broken_migration_is_not_reported_as_a_newer_schema(

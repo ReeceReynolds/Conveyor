@@ -345,6 +345,17 @@ def test_a_corrupt_registry_is_reported(project: Path) -> None:
     )
 
 
+def test_an_unusable_state_folder_is_reported(project: Path) -> None:
+    (project / STATE_DIR).write_text("in the way\n")
+
+    for args in (["publish", "implementer", "-m", "initial"], ["history", "implementer"]):
+        result = _agent(*args)
+        assert result.exit_code == 1
+        assert result.output == snapshot(
+            "The registry in . cannot be read: cannot use .conveyor: not a folder\n"
+        )
+
+
 # --- diff -------------------------------------------------------------------------------------
 
 
