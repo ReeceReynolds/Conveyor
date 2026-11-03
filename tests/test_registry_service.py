@@ -9,7 +9,8 @@ import pytest
 from inline_snapshot import snapshot
 
 from conveyor.contracts import resolve_contract_schemas
-from conveyor.model import Issue, load_agent_file
+from conveyor.model import load_agent_file
+from conveyor.model.checks import check_agent_folder
 from conveyor.registry import (
     PublishError,
     PublishResult,
@@ -28,7 +29,6 @@ from conveyor.registry import (
     resolve,
     snapshot_working_copy,
 )
-from conveyor.registry import service as service_module
 from conveyor.storage import STATE_DIR, AgentVersionRecord, RegistryRepository, Store
 
 WHEN = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
@@ -300,41 +300,32 @@ def test_files_that_cannot_be_snapshotted_are_reported_as_issues(example_project
     )
 
 
-def _no_issues(_folder: Path) -> list[Issue]:
-    return []
+def _count_imports(project: Path, log: Path) -> None:
+    """Make the project's contract module record each time it is imported."""
+    contracts = project / "contracts.py"
+    record = f"\nwith open({str(log)!r}, 'a') as _log:\n    _log.write('imported\\n')\n"
+    contracts.write_text(contracts.read_text() + record)
 
 
-@pytest.mark.parametrize(
-    ("edit", "expected"),
-    [
-        (
-            ("name: implementer", "name: [implementer]"),
-            "agents/implementer/agent.yaml:2:7: name: input should be a valid string",
-        ),
-        (
-            ("contracts.TaskList", "contracts.Missing"),
-            (
-                "agents/implementer/agent.yaml: brief: cannot resolve contract 'contracts.Missing':"
-                " module 'contracts' has no attribute 'Missing'"
-            ),
-        ),
-    ],
-)
-def test_changes_after_validation_are_still_reported_as_issues(
-    example_project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    edit: tuple[str, str],
-    expected: str,
+def _imports(log: Path) -> int:
+    count = len(log.read_text().splitlines()) if log.exists() else 0
+    log.unlink(missing_ok=True)
+    return count
+
+
+def test_publish_imports_contracts_no_more_often_than_validating(
+    example_project: Path, tmp_path: Path
 ) -> None:
-    """Files can change between validating a folder and snapshotting it."""
-    file = _agent_file(example_project)
-    file.write_text(file.read_text().replace(*edit))
-    monkeypatch.setattr(service_module, "check_agent_folder", _no_issues)
+    """Publishing validates and snapshots, but resolves each contract once."""
+    log = tmp_path / "imports.log"
+    _count_imports(example_project, log)
+    check_agent_folder(example_project / "agents" / AGENT)
+    validating = _imports(log)
 
-    with pytest.raises(PublishError) as raised:
-        snapshot_working_copy(example_project, AGENT)
+    _publish(example_project)
 
-    assert _issues(raised.value, example_project) == [expected]
+    assert validating > 0
+    assert _imports(log) == validating
 
 
 class _Arguments(NamedTuple):

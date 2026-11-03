@@ -20,10 +20,8 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from conveyor.contracts import ContractResolutionError, resolve_contract_schemas
-from conveyor.model.checks import AGENT_FILE, AGENTS_DIR, check_agent_folder
-from conveyor.model.errors import ConfigError, Issue
-from conveyor.model.loader import load_agent_file
+from conveyor.model.checks import AGENT_FILE, AGENTS_DIR, inspect_agent_folder
+from conveyor.model.errors import Issue
 from conveyor.model.types import SLUG_PATTERN
 from conveyor.registry.diff import AgentDiff, diff_snapshots, render, summarise
 from conveyor.registry.snapshot import (
@@ -233,19 +231,15 @@ def snapshot_working_copy(project_root: Path, name: str) -> AgentSnapshot:
         if path.is_symlink():
             issue = Issue(file=path, message="symbolic links are not followed")
             raise PublishError(name, [issue])
-    if issues := check_agent_folder(folder):
-        raise PublishError(name, issues)
-    # The folder was valid a moment ago, but files can change in between: report the same
-    # failures as issues rather than letting them escape as tracebacks.
-    file = folder / AGENT_FILE
+    # Validating reads agent.yaml and resolves the contracts; the snapshot reuses both, so
+    # each contract module is imported once per publish.
+    inspection = inspect_agent_folder(folder)
+    if inspection.issues or inspection.agent is None:
+        raise PublishError(name, inspection.issues)
+    # The instructions and eval files are read again for the snapshot, and can change in
+    # between: report the same failures as issues rather than letting them escape.
     try:
-        agent = load_agent_file(file)
-        schemas = resolve_contract_schemas(project_root, [agent.brief.input, agent.brief.output])
-        return build_snapshot(folder, agent, schemas)
-    except ConfigError as error:
-        raise PublishError(name, error.issues) from error
-    except ContractResolutionError as error:
-        raise PublishError(name, [Issue(file=file, loc=("brief",), message=str(error))]) from error
+        return build_snapshot(folder, inspection.agent, inspection.schemas)
     except SnapshotError as error:
         raise PublishError(name, [_snapshot_issue(folder, error)]) from error
 
