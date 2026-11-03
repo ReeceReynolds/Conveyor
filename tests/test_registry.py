@@ -814,6 +814,52 @@ def test_every_kind_of_change_has_a_phrase() -> None:
     )
 
 
+def test_a_contract_switch_reads_once_with_its_schema_changes() -> None:
+    # Switching a contract changes its schema too; that is one change, not two.
+    old = BASE
+    new = _edit(
+        BASE,
+        {"agent.brief.output": "contracts.Changes", "output_schema": CODE_CHANGES_V2},
+    )
+
+    assert _summary(old, new) == snapshot(
+        "implementer v1 → v2: Brief changed; contract pair changed; output contract switched"
+        " (contracts.CodeChanges → contracts.Changes)"
+    )
+    assert _render(old, new) == snapshot("""\
+implementer v1 → v2
+  Brief
+    contract pair
+      output contract switched (contracts.CodeChanges → contracts.Changes)
+        /properties/commits/items added ({"type": "string"})
+        /properties/commits/type changed ("integer" → "array")
+        /properties/pull_request_title added ({"type": "string"})
+        /required changed (["branch", "files"] → ["branch", "files", "pull_request_title"])
+""")
+
+
+def test_both_contracts_switched_keep_their_own_schema_changes() -> None:
+    new = _edit(
+        BASE,
+        {
+            "agent.brief.input": "contracts.Plan",
+            "agent.brief.output": "contracts.Changes",
+            "input_schema": {**TASK_LIST, "title": "Plan"},
+            "output_schema": {**CODE_CHANGES_V1, "title": "Changes"},
+        },
+    )
+
+    assert _render(BASE, new) == snapshot("""\
+implementer v1 → v2
+  Brief
+    contract pair
+      input contract switched (contracts.TaskList → contracts.Plan)
+        /title changed ("TaskList" → "Plan")
+      output contract switched (contracts.CodeChanges → contracts.Changes)
+        /title changed ("CodeChanges" → "Changes")
+""")
+
+
 def test_rename_renders_before_the_blocks() -> None:
     new = _edit(BASE, {"agent.name": "builder", "agent.capabilities.tools": []})
 

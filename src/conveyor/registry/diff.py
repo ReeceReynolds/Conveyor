@@ -595,17 +595,33 @@ def phrase(change: PrimitiveChange, *, limit: int | None = None) -> str:
     return _PHRASES[change.kind](change, limit)
 
 
+def _contract_side(change: PrimitiveChange) -> str | None:
+    """`input` or `output` for a change to a contract's reference or schema, else `None`."""
+    if change.kind is not Primitive.CONTRACT:
+        return None
+    return "input" if "input" in change.field else "output"
+
+
 def _entries(
     changes: Sequence[PrimitiveChange], limit: int | None
 ) -> list[tuple[str, list[PrimitiveChange]]]:
-    """Phrase a component's changes; the schema changes of one contract share one phrase."""
+    """Phrase a component's changes; all changes to one contract share one phrase.
+
+    A contract's schema changes read as `output contract changed`, or, when its reference
+    was switched too, as part of `output contract switched (a → b)`: switching a contract is
+    one change, whatever it does to the schema.
+    """
     entries: list[tuple[str, list[PrimitiveChange]]] = []
+    contracts: dict[str, list[PrimitiveChange]] = {}
     for change in changes:
-        text = phrase(change, limit=limit)
-        if change.field.endswith("_schema") and entries and entries[-1][0] == text:
-            entries[-1][1].append(change)
-        else:
-            entries.append((text, [change]))
+        side = _contract_side(change)
+        if side in contracts and change.field.endswith("_schema"):
+            contracts[side].append(change)
+            continue
+        entry = (phrase(change, limit=limit), [change])
+        entries.append(entry)
+        if side is not None:
+            contracts[side] = entry[1]
     return entries
 
 
@@ -618,7 +634,8 @@ def summarise(diff: AgentDiff, *, name: str, old_label: str, new_label: str) -> 
 
     Each changed block is named, then each changed component in it, then what changed:
     `implementer v1 → v2: Capabilities changed; model profile changed; model switched (a → b)`.
-    The schema changes of one contract read as one change (`output contract changed`). At most
+    The schema changes of one contract read as one change (`output contract changed`), folded
+    into `output contract switched (a → b)` when its reference changed as well. At most
     `MAX_SUMMARY_CHANGES` changes are spelled out and the rest are counted as `and N more`;
     values longer than `MAX_SUMMARY_VALUE` characters are elided.
 
