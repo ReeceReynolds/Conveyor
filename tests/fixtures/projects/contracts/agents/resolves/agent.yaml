@@ -1,0 +1,5 @@
+name: resolves
+brief: { instructions: prompt.md, input: contracts.Good, output: contracts.review.Verdict }
+capabilities:
+  model: { provider: anthropic, id: claude-sonnet }
+quality_gate: { suite: evals, min_pass_rate: 0.5 }

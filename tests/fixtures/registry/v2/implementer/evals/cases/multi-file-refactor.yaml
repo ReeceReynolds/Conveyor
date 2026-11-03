@@ -1,0 +1,8 @@
+name: multi-file-refactor
+input:
+  tasks:
+    - id: t1
+      title: Extract the retry loop into a helper
+      acceptance_criteria: [no behaviour change, helper has tests]
+expected:
+  files_changed: 4

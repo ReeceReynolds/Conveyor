@@ -19,8 +19,11 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "alembic>=1.20.1",
     "pydantic>=2.14.1",
+    "rfc8785>=0.1.4",
     "ruamel-yaml>=0.19.1",
+    "sqlalchemy>=2.1.6",
     "typer>=0.27.3",
 ]
 
@@ -39,6 +42,7 @@ dev = [
     "import-linter>=2.15",
     "inline-snapshot>=0.36.1",
     "pre-commit>=4.7.0",
+    "psycopg[binary]>=3.3.6",
     "pyright>=1.1.414",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
@@ -46,6 +50,7 @@ dev = [
     "pytest-socket>=0.8.1",
     "pytest-timeout>=2.4.0",
     "ruff>=0.17.1",
+    "testcontainers[postgres]>=4.15.0",
 ]
 
 [build-system]
@@ -196,13 +201,14 @@ unmatched_ignore_imports_alerting = "none"
 minversion = "9.0"
 testpaths = ["tests"]
 # No network in tests (pytest-socket); a test that genuinely needs a socket opts in with
-# @pytest.mark.enable_socket. pytest-randomly shuffles the order on every run.
+# @pytest.mark.enable_socket. pytest-randomly shuffles the order on every run. Postgres tests
+# need Docker and run only in their own CI job (`-m postgres`; ADR 0012).
 addopts = [
     "--strict-markers",
     "--strict-config",
     "-ra",
     "-m",
-    "not live",
+    "not live and not postgres",
     "--disable-socket",
     "--allow-unix-socket",
 ]
@@ -211,6 +217,7 @@ xfail_strict = true
 filterwarnings = ["error"]
 markers = [
     "live: calls real model providers; excluded by default and run nightly with a spend cap",
+    "postgres: runs against Postgres in a testcontainer; excluded by default, run in CI's Postgres job",
 ]
 
 [tool.coverage.run]

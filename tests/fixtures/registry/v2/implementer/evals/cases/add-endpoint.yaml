@@ -1,0 +1,8 @@
+name: add-endpoint
+input:
+  tasks:
+    - id: t1
+      title: Add GET /health
+      acceptance_criteria: [returns 200, has a test, documented in the README]
+expected:
+  files_changed: 3

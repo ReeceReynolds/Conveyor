@@ -1,0 +1,8 @@
+name: rename-function
+input:
+  tasks:
+    - id: t1
+      title: Rename parse() to parse_config()
+      acceptance_criteria: [all call sites updated]
+expected:
+  files_changed: 3

@@ -28,7 +28,10 @@ Skills are plain Markdown; any agent can read and follow them.
 ```
 src/conveyor/        Python package (import name `conveyor`, distribution `conveyor-harness`)
   model/             Factory model: config models, YAML loading, checks, JSON Schema export
-  cli.py             `conveyor` command line (Typer)
+  contracts/         Contract resolution: Brief references to Pydantic models and their schemas
+  storage/           Local state: SQLite/Alembic database, object store, registry repository
+  registry/          Agent snapshots, content-hash version IDs, diffs and the registry service
+  cli.py             `conveyor` command line (Typer): `validate` and `agent publish|history|show|diff`
 tests/               pytest suite for src/conveyor; YAML fixtures in tests/fixtures/
 schemas/             Published JSON Schemas for agent.yaml and factory files (generated)
 ui/                  React + TypeScript web interface (pnpm, Vite, Biome, Vitest)
@@ -44,9 +47,9 @@ never from layers above; packages in the same layer (`|`) are independent of eac
 
 ```
 conveyor.cli                          command line; the only package that imports typer
-conveyor.registry                     agent snapshots, diffs and versions (milestone 2)
-conveyor.model | conveyor.storage     factory model | local state (storage arrives in milestone 2)
-conveyor.contracts                    contract resolution (milestone 2)
+conveyor.registry                     agent snapshots, diffs, versions and the registry service
+conveyor.model | conveyor.storage     factory model | local state
+conveyor.contracts                    contract resolution
 ```
 
 This is enforced by import-linter (`uv run lint-imports`, part of `make lint`), which also keeps
@@ -67,8 +70,11 @@ Run everything from the repository root.
 | Check the import layers | `uv run lint-imports` |
 | UI lint, types, tests, build | `make ui-check` |
 | Single Python test | `uv run pytest tests/test_package.py::test_name` |
+| Postgres storage tests (need Docker) | `uv run pytest -m postgres` |
 | Regenerate JSON Schemas after a model change | `make schemas` |
 | Validate agents and factories | `uv run conveyor validate <path>` |
+| Publish an agent version | `uv run conveyor agent publish <name> -m "<message>" [--project <path>]` |
+| List, show and compare agent versions | `uv run conveyor agent history <name>`, `show <name>[@vN]`, `diff <name> [FROM] [TO] [--working]` |
 | Update inline snapshots | `uv run pytest --inline-snapshot=fix` |
 | Add a Python dependency (ask first) | `uv add <pkg>` (or `uv add --dev <pkg>`) |
 | Add a UI dependency (ask first) | `pnpm -C ui add <pkg>` |

@@ -1,0 +1,8 @@
+name: missing
+brief:
+  instructions: prompt.md
+  input: schemas.Request
+  output: contracts.Absent
+capabilities:
+  model: { provider: anthropic, id: claude-sonnet }
+quality_gate: { suite: evals, min_pass_rate: 0.5 }

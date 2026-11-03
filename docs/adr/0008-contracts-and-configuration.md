@@ -1,6 +1,7 @@
 # 0008. Contracts and configuration: Pydantic v2 models and JSON Schema 2020-12
 
-- Status: Accepted
+- Status: Accepted. Amended by [0011](0011-contract-resolution.md): contract references are
+  now resolved at validate and publish time.
 - Date: 2026-10-20
 
 ## Context
