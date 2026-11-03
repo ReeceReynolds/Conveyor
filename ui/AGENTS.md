@@ -21,9 +21,9 @@ Python package and served by `conveyor`.
 
 ## Commands
 
-| Task | Command |
-|---|---|
-| Lint, type-check, test and build (what CI runs) | `make ui-check` |
-| Format and apply safe fixes | `pnpm -C ui run format` |
-| Dev server | `pnpm -C ui run dev` |
-| One test file | `pnpm -C ui exec vitest run src/App.test.tsx` |
+| Task                                            | Command                                       |
+| ----------------------------------------------- | --------------------------------------------- |
+| Lint, type-check, test and build (what CI runs) | `make ui-check`                               |
+| Format and apply safe fixes                     | `pnpm -C ui run format`                       |
+| Dev server                                      | `pnpm -C ui run dev`                          |
+| One test file                                   | `pnpm -C ui exec vitest run src/App.test.tsx` |
