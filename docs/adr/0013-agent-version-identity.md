@@ -38,11 +38,16 @@ by the registry alongside the version, not in it. The agent's name is part of id
 **Reading files is strict.** Instructions and eval files must be regular UTF-8 text files.
 CRLF becomes LF and a leading byte order mark is dropped, so a Windows checkout hashes the
 same as a Linux one. Symbolic links are refused everywhere in an agent rather than
-followed: the agent folder itself, its `agent.yaml`, every folder on the way to the
-instructions or the eval suite, and every file in the suite. A link would bring content from
-outside the agent folder into its identity (a linked agent folder would even be validated
-against another project's contracts), and Git on Windows checks links out as small text
-files, so one commit would hash two ways.
+followed: the project's `agents/` folder, the agent folder itself, its `agent.yaml`, every
+folder on the way to the instructions or the eval suite, and every file in the suite. A link
+would bring content from outside the agent folder into its identity (a linked agent or
+`agents/` folder would even be validated against another project's contracts while the
+snapshot took this project's), and Git on Windows checks links out as small text files, so
+one commit would hash two ways. Names must be portable for the same reason: an eval file
+name may not contain a backslash, and no two names in a suite may differ only in case
+(`Case.yaml` and `case.yaml`, or `Cases/` and `cases/`), which macOS and Windows check out
+as one. A folder in the suite that cannot be listed is an error, never an empty folder, so
+eval cases cannot drop out of a version unnoticed.
 
 **The canonical form is RFC 8785, the JSON Canonicalization Scheme (JCS)**, applied to the
 snapshot's JSON (`model_dump(mode="json")`) with the
