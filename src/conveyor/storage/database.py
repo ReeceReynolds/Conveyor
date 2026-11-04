@@ -1,17 +1,21 @@
 """Engine creation: supported backends, SQLite connection settings and write transactions.
 
 Every SQLite connection gets write-ahead logging, enforced foreign keys and a busy timeout.
+Read-only engines (`connect_read_only`) open an existing database file without write access
+and leave its journal mode alone.
 SQLAlchemy, not the `sqlite3` module, decides when transactions begin, so reads see a
 consistent snapshot and writers can take the write lock up front with `BEGIN IMMEDIATE`.
 """
 
+import os
 import sqlite3
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Final
 
-from sqlalchemy import Connection, Engine, create_engine, event, make_url
+from sqlalchemy import URL, Connection, Engine, create_engine, event, make_url
 from sqlalchemy.engine.interfaces import DBAPIConnection, DBAPICursor
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.pool import ConnectionPoolEntry
@@ -35,6 +39,9 @@ _PRAGMAS: Final = (
     "PRAGMA foreign_keys=ON",
 )
 
+_WAL_FILES: Final = ("-wal", "-shm")
+"""The files SQLite keeps beside a database in write-ahead-log mode, by suffix."""
+
 
 def connect(url: str) -> Engine:
     """Create an engine for a supported database URL.
@@ -57,6 +64,44 @@ def connect(url: str) -> Engine:
         event.listen(engine, "connect", _configure_sqlite_connection)
         event.listen(engine, "begin", _begin_sqlite_transaction)
     return engine
+
+
+def connect_read_only(database: Path) -> Engine:
+    """Create an engine that reads an existing SQLite database and cannot write to it.
+
+    Reading a database in write-ahead-log mode needs its `-wal` and `-shm` files, which SQLite
+    creates beside it. Where that folder can be written, the database is opened as usual with
+    `PRAGMA query_only`, which refuses every write; the last connection to close removes the
+    two files again, as a connection opened read-only cannot. Where it cannot be written (a
+    read-only checkout), the database is opened with SQLite's `mode=ro`, and as `immutable`
+    if its `-wal` and `-shm` files are missing too, since nothing can be writing to it there.
+    An immutable connection ignores the `-wal` file, so with one present (and committed
+    versions possibly in it) the database is never opened as immutable.
+
+    Args:
+        database: The database file; it must exist.
+
+    Returns:
+        The engine, with the busy timeout and foreign keys of `connect` but no journal mode
+        change.
+    """
+    if _writable(database.parent):
+        url = URL.create("sqlite", database=str(database))
+    else:
+        query = {"mode": "ro", "uri": "true"}
+        if not any(
+            database.with_name(f"{database.name}{suffix}").exists() for suffix in _WAL_FILES
+        ):
+            query["immutable"] = "1"
+        url = URL.create("sqlite", database=database.resolve().as_uri(), query=query)
+    engine = create_engine(url)
+    event.listen(engine, "connect", _configure_read_only_sqlite_connection)
+    event.listen(engine, "begin", _begin_sqlite_transaction)
+    return engine
+
+
+def _writable(folder: Path) -> bool:
+    return os.access(folder, os.W_OK)
 
 
 @contextmanager
@@ -108,6 +153,18 @@ def _configure_sqlite_connection(
         for pragma in _PRAGMAS:
             cursor.execute(pragma)
         _enable_wal(cursor)
+    finally:
+        cursor.close()
+
+
+def _configure_read_only_sqlite_connection(
+    dbapi_connection: DBAPIConnection, _record: ConnectionPoolEntry
+) -> None:
+    dbapi_connection.isolation_level = None
+    cursor = dbapi_connection.cursor()
+    try:
+        for pragma in (*_PRAGMAS, "PRAGMA query_only=ON"):
+            cursor.execute(pragma)
     finally:
         cursor.close()
 

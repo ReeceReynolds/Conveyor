@@ -213,9 +213,12 @@ def _run_hook(
 def _failing_tools(directory: Path) -> dict[str, str]:
     """Put `uv` and `pnpm` stand-ins that always fail on PATH, so no real tool runs."""
     for name in ("uv", "pnpm"):
-        tool = directory / name
-        tool.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-        tool.chmod(0o755)
+        if os.name == "nt":
+            (directory / f"{name}.cmd").write_text("@exit /b 1\r\n", encoding="utf-8")
+        else:
+            tool = directory / name
+            tool.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+            tool.chmod(0o755)
     return {**os.environ, "PATH": str(directory)}
 
 

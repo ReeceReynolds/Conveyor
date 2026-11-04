@@ -20,10 +20,8 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from conveyor.contracts import ContractResolutionError, resolve_contract_schemas
-from conveyor.model.checks import AGENT_FILE, AGENTS_DIR, check_agent_folder
-from conveyor.model.errors import ConfigError, Issue
-from conveyor.model.loader import load_agent_file
+from conveyor.model.checks import AGENT_FILE, AGENTS_DIR, inspect_agent_folder
+from conveyor.model.errors import Issue
 from conveyor.model.types import SLUG_PATTERN
 from conveyor.registry.diff import AgentDiff, diff_snapshots, render, summarise
 from conveyor.registry.snapshot import (
@@ -38,6 +36,7 @@ from conveyor.storage import (
     AgentVersionRecord,
     AmbiguousVersionError,
     InvalidPrefixError,
+    RegistryNotFoundError,
     StorageError,
     Store,
     VersionNotFoundError,
@@ -166,6 +165,18 @@ class PublishResult(BaseModel):
     )
 
 
+class AgentListing(BaseModel):
+    """One agent of a project: its folder, its latest version, or both."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(description="The agent's name.")
+    latest: AgentVersionRecord | None = Field(
+        description="The newest published version; `None` if the agent was never published."
+    )
+    has_folder: bool = Field(description=f"Whether `{AGENTS_DIR}/<name>/{AGENT_FILE}` exists.")
+
+
 @dataclass(frozen=True)
 class WorkingCopy:
     """The side of a diff that is the agent folder on disk, as it would be published.
@@ -233,19 +244,15 @@ def snapshot_working_copy(project_root: Path, name: str) -> AgentSnapshot:
         if path.is_symlink():
             issue = Issue(file=path, message="symbolic links are not followed")
             raise PublishError(name, [issue])
-    if issues := check_agent_folder(folder):
-        raise PublishError(name, issues)
-    # The folder was valid a moment ago, but files can change in between: report the same
-    # failures as issues rather than letting them escape as tracebacks.
-    file = folder / AGENT_FILE
+    # Validating reads agent.yaml and resolves the contracts; the snapshot reuses both, so
+    # each contract module is imported once per publish.
+    inspection = inspect_agent_folder(folder)
+    if inspection.issues or inspection.agent is None:
+        raise PublishError(name, inspection.issues)
+    # The instructions and eval files are read again for the snapshot, and can change in
+    # between: report the same failures as issues rather than letting them escape.
     try:
-        agent = load_agent_file(file)
-        schemas = resolve_contract_schemas(project_root, [agent.brief.input, agent.brief.output])
-        return build_snapshot(folder, agent, schemas)
-    except ConfigError as error:
-        raise PublishError(name, error.issues) from error
-    except ContractResolutionError as error:
-        raise PublishError(name, [Issue(file=file, loc=("brief",), message=str(error))]) from error
+        return build_snapshot(folder, inspection.agent, inspection.schemas)
     except SnapshotError as error:
         raise PublishError(name, [_snapshot_issue(folder, error)]) from error
 
@@ -363,6 +370,42 @@ def diff_versions(store: Store, name: str, old: Side, new: Side) -> VersionDiff:
         old_label=old_label,
         new_label=new_label,
         diff=diff_snapshots(old_snapshot, new_snapshot),
+    )
+
+
+def list_agents(project_root: Path) -> tuple[AgentListing, ...]:
+    """List a project's agents: every agent folder and every agent with published versions.
+
+    The store is opened read-only, so listing never creates or migrates `.conveyor/`; a
+    project without one has nothing published.
+
+    Args:
+        project_root: The project holding `agents/` and `.conveyor/`.
+
+    Returns:
+        The agents, sorted by name. An agent folder is any folder in `agents/` holding an
+        `agent.yaml`, valid or not.
+
+    Raises:
+        StorageError: If the store exists but cannot be read.
+    """
+    folders = {
+        folder.name
+        for folder in (project_root / AGENTS_DIR).glob("*")
+        if (folder / AGENT_FILE).is_file()
+    }
+    latest: dict[str, AgentVersionRecord] = {}
+    try:
+        with Store.open(project_root, read_only=True) as store:
+            for name in store.registry.agents():
+                if (record := store.registry.latest(name)) is not None:
+                    latest[name] = record
+    except RegistryNotFoundError:
+        # Nothing was ever published here; the agent folders are still listed.
+        pass
+    return tuple(
+        AgentListing(name=name, latest=latest.get(name), has_folder=name in folders)
+        for name in sorted(folders | latest.keys())
     )
 
 

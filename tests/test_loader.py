@@ -215,3 +215,43 @@ def test_dump_yaml_omits_defaults_and_round_trips(in_fixtures: Path) -> None:
 
     assert "repeats" not in text
     assert validate_document(parse_yaml(text, FILE), Agent) == agent
+
+
+def test_dump_yaml_writes_block_style_in_field_order(in_fixtures: Path) -> None:
+    agent = validate_document(read_document(in_fixtures / "agents/valid-full.yaml"), Agent)
+    long_ref = "contracts." + "a" * 80
+    agent = agent.model_copy(update={"brief": agent.brief.model_copy(update={"input": long_ref})})
+
+    text = dump_yaml(agent)
+
+    assert text == snapshot("""\
+name: task-planner
+brief:
+  instructions: prompts/plan.md
+  input: contracts.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  output: contracts.TaskList
+capabilities:
+  model:
+    provider: openrouter
+    id: anthropic/claude-sonnet
+    temperature: 0.2
+    top_p: 0.95
+    max_tokens: 4096
+    routing:
+      only:
+        - anthropic
+        - amazon-bedrock
+      allow_fallbacks: false
+  tools:
+    - github.create_pull_request
+    - fs-read
+  permissions:
+    network: true
+    secrets:
+      - GITHUB_TOKEN
+quality_gate:
+  suite: evals
+  min_pass_rate: 0.9
+  repeats: 3
+""")
+    assert validate_document(parse_yaml(text, FILE), Agent) == agent

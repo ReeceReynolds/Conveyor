@@ -9,11 +9,17 @@ from typing import Final
 
 from alembic import command
 from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from alembic.script.revision import ResolutionError
 from alembic.util import CommandError
 from sqlalchemy import Connection
 
-from conveyor.storage.errors import IncompatibleSchemaError, MigrationError
+from conveyor.storage.errors import (
+    IncompatibleSchemaError,
+    MigrationError,
+    MigrationRequiredError,
+)
 
 MIGRATIONS_DIR: Final = Path(__file__).with_name("migrations")
 """Where the Alembic environment and version scripts live."""
@@ -60,3 +66,35 @@ def upgrade(connection: Connection) -> None:
             raise IncompatibleSchemaError(msg) from error
         msg = f"migrating the registry database failed: {error}"
         raise MigrationError(msg) from error
+
+
+def check_current(connection: Connection) -> None:
+    """Check that the database has every migration, without applying any.
+
+    Args:
+        connection: A connection; nothing is written through it.
+
+    Raises:
+        IncompatibleSchemaError: If the database is at a revision this Conveyor does not know,
+            which means a newer Conveyor migrated it.
+        MigrationRequiredError: If the database lacks migrations this Conveyor has, because
+            an older Conveyor wrote it.
+    """
+    current = MigrationContext.configure(connection).get_current_revision()
+    scripts = ScriptDirectory.from_config(alembic_config(connection))
+    if current == scripts.get_current_head():
+        return
+    if current is not None:
+        try:
+            scripts.get_revision(current)
+        except CommandError as error:
+            msg = (
+                "the database schema is newer than this version of Conveyor supports: "
+                f"unknown revision {current!r}"
+            )
+            raise IncompatibleSchemaError(msg) from error
+    msg = (
+        "the registry database was written by an older version of Conveyor and must be "
+        "migrated; any command that writes to the registry, such as publishing, migrates it"
+    )
+    raise MigrationRequiredError(msg)

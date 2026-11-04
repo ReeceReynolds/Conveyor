@@ -1,7 +1,9 @@
 """The `conveyor agent` commands, through Typer's test runner."""
 
 import getpass
+import os
 import re
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -9,7 +11,7 @@ import pytest
 from inline_snapshot import snapshot
 from typer.testing import CliRunner, Result
 
-from conveyor.cli import Clock, app
+from conveyor.cli import NEVER_PUBLISHED, Clock, app
 from conveyor.storage import STATE_DIR, Store
 
 runner = CliRunner()
@@ -33,6 +35,11 @@ def _redacted(text: str, project: Path, name: str = "implementer") -> str:
         text = text.replace(record.content_id, f"<v{record.sequence} id>")
         text = text.replace(record.content_id[:12], f"<v{record.sequence}>")
     return text
+
+
+def _posix(output: str) -> str:
+    """Output with paths written with `/`, as on Windows they print with `\\`."""
+    return output.replace(os.sep, "/")
 
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
@@ -141,7 +148,7 @@ def test_publish_prints_the_problems_of_an_invalid_agent(project: Path) -> None:
     result = _agent("publish", "implementer", "-m", "initial")
 
     assert result.exit_code == 1
-    assert result.output.splitlines() == [
+    assert _posix(result.output).splitlines() == [
         (
             "agents/implementer/agent.yaml:21:12: quality_gate.repeats: input should be greater"
             " than or equal to 1"
@@ -158,7 +165,7 @@ def test_publish_reports_an_unknown_agent() -> None:
     result = _agent("publish", "ghost", "-m", "initial")
 
     assert result.exit_code == 1
-    assert result.output == snapshot("""\
+    assert _posix(result.output) == snapshot("""\
 agents/ghost: not an agent folder: no agent.yaml
 Found 1 problem in ghost; nothing published.
 """)
@@ -260,10 +267,51 @@ def test_history_aligns_columns_and_shows_first_message_lines(project: Path) -> 
 
 @pytest.mark.usefixtures("project")
 def test_history_of_an_unpublished_agent_fails() -> None:
+    _agent("publish", "task-planner", "-m", "initial")
+
     result = _agent("history", "implementer")
 
     assert result.exit_code == 1
     assert result.output == "agent 'implementer' has no published versions\n"
+
+
+@pytest.mark.parametrize(
+    ("args", "code"),
+    [
+        (("history", "implementer"), 1),
+        (("show", "implementer"), 1),
+        (("diff", "implementer"), 1),
+        (("diff", "implementer", "--working"), 1),
+        (("diff", "implementer", "--exit-code"), 2),
+    ],
+)
+def test_reading_a_project_with_nothing_published_creates_nothing(
+    project: Path, args: tuple[str, ...], code: int
+) -> None:
+    result = _agent(*args)
+
+    assert result.exit_code == code
+    assert result.output == ("nothing has been published yet: there is no registry in .conveyor/\n")
+    assert not (project / STATE_DIR).exists()
+
+
+def test_read_commands_write_nothing_to_the_registry(project: Path) -> None:
+    _agent("publish", "implementer", "-m", "initial")
+    _switch_model(project)
+    _agent("publish", "implementer", "-m", "Switch to GPT-5", minutes=1)
+    state = project / STATE_DIR
+    (state / ".gitignore").unlink()
+    before = {path: path.read_bytes() for path in state.rglob("*") if path.is_file()}
+
+    for args in (
+        ("history", "implementer"),
+        ("show", "implementer@v1"),
+        ("diff", "implementer"),
+        ("diff", "implementer", "v1", "--working"),
+    ):
+        assert _agent(*args).exit_code == 0, args
+
+    assert {path: path.read_bytes() for path in state.rglob("*") if path.is_file()} == before
 
 
 # --- show -------------------------------------------------------------------------------------
@@ -290,18 +338,24 @@ Message:      initial
               With two eval files.
 
 agent.yaml
-    brief: {input: contracts.TaskList, instructions: prompt.md, output:
-        contracts.CodeChanges}
+    name: implementer
+    brief:
+      instructions: prompt.md
+      input: contracts.TaskList
+      output: contracts.CodeChanges
     capabilities:
       model:
-        id: anthropic/claude-sonnet
         provider: openrouter
-        routing:
-          allow_fallbacks: false
-          only: [anthropic]
+        id: anthropic/claude-sonnet
         temperature: 0.0
-    name: implementer
-    quality_gate: {min_pass_rate: 0.9, repeats: 3, suite: evals}
+        routing:
+          only:
+            - anthropic
+          allow_fallbacks: false
+    quality_gate:
+      suite: evals
+      min_pass_rate: 0.9
+      repeats: 3
 
 Instructions: prompt.md (146 bytes)
 Eval suite:   evals (2 files, 52 bytes)
@@ -368,6 +422,81 @@ def test_an_unusable_state_folder_is_reported(project: Path) -> None:
         assert result.output == snapshot(
             "The registry in . cannot be read: cannot use .conveyor: not a folder\n"
         )
+
+
+# --- list -------------------------------------------------------------------------------------
+
+
+def _blank_ids(output: str) -> str:
+    return re.sub(r"\b[0-9a-f]{12}\b", "<short id12>", output)
+
+
+def test_list_shows_every_agent_and_its_latest_version(project: Path) -> None:
+    _agent("publish", "implementer", "-m", "initial")
+    _switch_model(project)
+    _agent("publish", "implementer", "-m", "Switch to GPT-5", minutes=1)
+    _agent("publish", "task-planner", "-m", "initial", "--author", "Ada Lovelace", minutes=2)
+
+    result = _agent("list")
+
+    assert result.exit_code == 0
+    assert _blank_ids(result.output) == snapshot("""\
+code-reviewer         (never published)
+implementer           v2  <short id12>  2026-10-28 12:01  ada
+requirements-analyst  (never published)
+task-planner          v1  <short id12>  2026-10-28 12:02  Ada Lovelace
+""")
+
+
+def test_list_marks_a_published_agent_whose_folder_is_gone(project: Path) -> None:
+    _agent("publish", "task-planner", "-m", "initial")
+    shutil.rmtree(project / "agents" / "task-planner")
+    (project / "agents" / "notes").mkdir()
+
+    result = _agent("list")
+
+    assert result.exit_code == 0
+    assert _blank_ids(result.output).splitlines()[-1] == snapshot(
+        "task-planner          v1  <short id12>  2026-10-28 12:00  ada  (no folder in agents/)"
+    )
+    assert "notes" not in result.output
+
+
+def test_list_without_a_registry_creates_nothing(project: Path) -> None:
+    result = _agent("list")
+
+    assert result.exit_code == 0
+    assert result.output.count(NEVER_PUBLISHED) == 4
+    assert not (project / STATE_DIR).exists()
+
+
+def test_list_of_a_project_without_agents(tmp_path: Path) -> None:
+    (tmp_path / "agents").mkdir()
+
+    result = _agent("list", "--project", str(tmp_path))
+
+    assert result.exit_code == 0
+    assert result.output == f"no agents in {tmp_path / 'agents'}/\n"
+
+
+def test_list_refuses_a_folder_that_is_not_a_project(tmp_path: Path) -> None:
+    result = _agent("list", "--project", str(tmp_path))
+
+    assert result.exit_code == 2
+    assert "is not a Conveyor project" in _plain(result.output)
+
+
+def test_list_reports_an_unreadable_registry(project: Path) -> None:
+    (project / STATE_DIR).mkdir()
+    (project / STATE_DIR / "conveyor.db").write_text("not a database\n")
+
+    result = _agent("list")
+
+    assert result.exit_code == 1
+    assert result.output == snapshot(
+        "The registry in . cannot be read: the registry database cannot be used: file is "
+        "not a database\n"
+    )
 
 
 # --- diff -------------------------------------------------------------------------------------
@@ -484,6 +613,8 @@ def test_diff_with_a_single_version_suggests_working(project: Path) -> None:
 
 @pytest.mark.usefixtures("project")
 def test_diff_of_an_unpublished_agent_fails() -> None:
+    _agent("publish", "task-planner", "-m", "initial")
+
     result = _agent("diff", "implementer", "--working")
 
     assert result.exit_code == 1
@@ -497,7 +628,7 @@ def test_diff_working_reports_an_invalid_working_copy(project: Path) -> None:
     result = _agent("diff", "implementer", "--working")
 
     assert result.exit_code == 1
-    assert result.output == snapshot("""\
+    assert _posix(result.output) == snapshot("""\
 agents/implementer/agent.yaml:5:17: brief.instructions: file 'prompt.md' not found
 Found 1 problem in implementer; cannot compare the working copy.
 """)

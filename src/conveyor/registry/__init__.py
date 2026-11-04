@@ -6,8 +6,9 @@ compares two snapshots by block, component and primitive, and `summarise` and `r
 the result for people. Those modules touch neither storage nor user code.
 
 `conveyor.registry.service` joins them to contract resolution and storage: `publish` turns an
-agent folder into its next version, `resolve` finds the version a ref such as `v3` names, and
-`diff_versions` compares stored versions with each other or with the working copy.
+agent folder into its next version, `resolve` finds the version a ref such as `v3` names,
+`diff_versions` compares stored versions with each other or with the working copy, and
+`list_agents` lists a project's agents with their latest versions.
 """
 
 from conveyor.registry.diff import (
@@ -27,6 +28,7 @@ from conveyor.registry.diff import (
 from conveyor.registry.service import (
     LATEST,
     WORKING_COPY_LABEL,
+    AgentListing,
     PublishError,
     PublishResult,
     RefProblem,
@@ -37,6 +39,7 @@ from conveyor.registry.service import (
     check_agent_name,
     diff_versions,
     is_one_line,
+    list_agents,
     load_snapshot,
     previous_version,
     publish,
@@ -59,6 +62,7 @@ __all__ = [
     "LATEST",
     "WORKING_COPY_LABEL",
     "AgentDiff",
+    "AgentListing",
     "AgentSnapshot",
     "Block",
     "BlockDiff",
@@ -85,6 +89,7 @@ __all__ = [
     "diff_snapshots",
     "diff_versions",
     "is_one_line",
+    "list_agents",
     "load_snapshot",
     "previous_version",
     "publish",

@@ -73,6 +73,12 @@ implementer v1 → v2: Capabilities changed; model profile changed; model switch
 $ uv run conveyor agent history implementer
 v2  7b514a755dad  2026-10-28 12:05  ada  Switch to GPT-5
 v1  893e1fa01106  2026-10-28 12:00  ada  initial
+
+$ uv run conveyor agent list
+code-reviewer         (never published)
+implementer           v2  7b514a755dad  2026-10-28 12:05  ada
+requirements-analyst  (never published)
+task-planner          (never published)
 ```
 
 Diffs are described in factory-model terms: which block changed (Brief, Capabilities,
@@ -81,13 +87,16 @@ lists every change, with line-by-line diffs of instructions and eval files.
 
 | Command | What it does |
 |---|---|
+| `conveyor agent list` | List the project's agents with their latest versions, marking those never published |
 | `conveyor agent publish NAME -m MSG [--author TEXT]` | Validate `agents/NAME/` and publish it as the next version; does nothing if the content is unchanged |
 | `conveyor agent history NAME` | List versions, newest first |
 | `conveyor agent show NAME[@REF]` | Show a version's metadata, `agent.yaml` and file sizes |
 | `conveyor agent diff NAME [FROM] [TO] [--working] [--summary]` | Compare the last two versions, any two, or a version with the folder on disk |
 
 A version is referred to as `latest`, `vN` or at least four hex characters of its content ID.
-Every command takes `--project PATH` (default: the current directory). Publishing refuses an
+Every command takes `--project PATH` (default: the current directory). Only `publish` writes:
+the others open the registry read-only, so they never create `.conveyor/` and work in read-only
+checkouts ([ADR 0015](docs/adr/0015-read-only-store.md)). Publishing refuses an
 invalid agent and prints its problems as `conveyor validate` does; like `validate`, it imports
 the project's contract modules. Commands exit `1` for problems (an invalid agent, an unknown
 version, an unreadable registry) and `2` for a usage error. `diff` exits `0` whether or not

@@ -95,6 +95,11 @@ def file_errors(path: Path) -> Generator[None]:
         raise StateUnavailableError(failed, reason) from error
 
 
+def _intact(path: Path, digest: str) -> bool:
+    """Whether `path` is a file whose content hashes to `digest`."""
+    return path.is_file() and digest_of(path.read_bytes()) == digest
+
+
 def sync_directory(directory: Path) -> None:
     """Flush a directory's entries to disk, so a file just named in it survives a crash.
 
@@ -123,18 +128,21 @@ def sync_directory(directory: Path) -> None:
 class ObjectStore:
     """Immutable blobs addressed by the sha256 digest of their content."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, create: bool = True) -> None:
         """Open (and create, if needed) a store rooted at a directory.
 
         Args:
             root: The directory holding the fan-out subdirectories.
+            create: Whether to create the directory if it is missing. Without it, a missing
+                directory is an empty store until something is put into it.
 
         Raises:
             StateUnavailableError: If the directory cannot be created.
         """
         self.root = root
-        with file_errors(root):
-            root.mkdir(parents=True, exist_ok=True)
+        if create:
+            with file_errors(root):
+                root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, digest: str) -> Path:
         check_digest(digest)
@@ -163,7 +171,7 @@ class ObjectStore:
         return digest
 
     def _write(self, path: Path, digest: str, data: bytes) -> None:
-        if path.is_file() and digest_of(path.read_bytes()) == digest:
+        if _intact(path, digest):
             return
         new_directory = not path.parent.exists()
         path.parent.mkdir(exist_ok=True)
@@ -176,6 +184,14 @@ class ObjectStore:
             # Atomic on POSIX and Windows; a concurrent writer of the same digest wrote the same
             # bytes, so whichever replace lands last is equally correct.
             Path(temporary).replace(path)
+        except PermissionError:
+            Path(temporary).unlink(missing_ok=True)
+            # Windows refuses to replace a file another process has open, as a concurrent
+            # writer of the same digest has while it checks the object. That writer stored the
+            # same bytes, so an intact object there means this write already happened.
+            if not _intact(path, digest):
+                raise
+            return
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
             raise
@@ -204,7 +220,11 @@ class ObjectStore:
         with file_errors(path):
             try:
                 data = path.read_bytes()
-            except FileNotFoundError:
+            except FileNotFoundError, NotADirectoryError:
+                # POSIX and Windows report a file where the fan-out folder goes differently
+                # (not a directory, or not found); report both as the same unusable state.
+                if path.parent.exists() and not path.parent.is_dir():
+                    raise StateUnavailableError(path.parent, "not a folder") from None
                 raise ObjectNotFoundError(digest) from None
         actual = digest_of(data)
         if actual != digest:

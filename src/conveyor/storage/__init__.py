@@ -2,7 +2,8 @@
 
 All state for a project lives in `<project>/.conveyor/`: `conveyor.db` (SQLite in WAL mode,
 with foreign keys enforced) and `objects/` (immutable blobs named by their sha256 digest).
-`Store.open` creates both and applies migrations. The storage layer does not interpret what
+`Store.open` creates both and applies migrations; `Store.open(..., read_only=True)` creates
+and migrates nothing, for commands that only read. The storage layer does not interpret what
 it stores: an agent snapshot, for example, arrives as opaque bytes.
 """
 
@@ -14,7 +15,9 @@ from conveyor.storage.errors import (
     InvalidDigestError,
     InvalidPrefixError,
     MigrationError,
+    MigrationRequiredError,
     ObjectNotFoundError,
+    RegistryNotFoundError,
     StateUnavailableError,
     StorageError,
     UnsupportedDatabaseError,
@@ -34,8 +37,10 @@ __all__ = [
     "InvalidDigestError",
     "InvalidPrefixError",
     "MigrationError",
+    "MigrationRequiredError",
     "ObjectNotFoundError",
     "ObjectStore",
+    "RegistryNotFoundError",
     "RegistryRepository",
     "StateUnavailableError",
     "StorageError",

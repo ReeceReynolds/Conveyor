@@ -6,8 +6,8 @@ thin: they call library functions and format the results as plain text. Exit cod
 version), `2` usage errors (a malformed ref, a folder that is not a project).
 
 - `conveyor validate`: check agents and factories against the factory model.
-- `conveyor agent publish | history | show | diff`: publish agent versions, list them, show
-  one and compare any two.
+- `conveyor agent list | publish | history | show | diff`: list a project's agents, publish
+  agent versions, list them, show one and compare any two.
 """
 
 import getpass
@@ -34,13 +34,20 @@ from conveyor.registry import (
     check_agent_name,
     diff_versions,
     is_one_line,
+    list_agents,
     load_snapshot,
     previous_version,
     publish,
     resolve,
     short_id,
 )
-from conveyor.storage import AgentVersionRecord, StorageError, Store
+from conveyor.storage import (
+    STATE_DIR,
+    AgentVersionRecord,
+    RegistryNotFoundError,
+    StorageError,
+    Store,
+)
 
 app = typer.Typer(
     name="conveyor",
@@ -114,7 +121,7 @@ def validate(
 
 agent_app = typer.Typer(
     name="agent",
-    help="Publish agent versions, list them, show one and compare any two.",
+    help="List agents, publish their versions, list those, show one and compare any two.",
     no_args_is_help=True,
     rich_markup_mode="markdown",
 )
@@ -240,8 +247,14 @@ def _reporting(project: Path, outcome: str = "nothing done", code: int = FAILED)
         if error.problem is RefProblem.MALFORMED:
             raise typer.BadParameter(str(error)) from None
         _fail(str(error), code)
+    except RegistryNotFoundError:
+        _fail(_nothing_published(project), code)
     except (StorageError, SnapshotError) as error:
         _fail(f"The registry in {project} cannot be read: {error}", code)
+
+
+def _nothing_published(project: Path) -> str:
+    return f"nothing has been published yet: there is no registry in {project / STATE_DIR}/"
 
 
 def _version(record: AgentVersionRecord) -> str:
@@ -280,6 +293,47 @@ def _show_lines(record: AgentVersionRecord, snapshot: AgentSnapshot) -> list[str
 
 
 # --- Commands ---------------------------------------------------------------------------------
+
+
+NEVER_PUBLISHED: Final = "(never published)"
+"""What `conveyor agent list` prints for an agent folder with no versions."""
+
+NO_FOLDER: Final = f"(no folder in {AGENTS_DIR}/)"
+"""What `conveyor agent list` adds for a published agent whose folder is gone."""
+
+
+@agent_app.command("list")
+def list_command(project: ProjectOption = Path()) -> None:
+    """List the project's agents, each with its latest version.
+
+    Each line reads `name  vN  short-id  date  author`, with dates in UTC; an agent in
+    agents/ that has never been published reads `name  (never published)`, and a published
+    agent whose folder is gone ends in `(no folder in agents/)`.
+    """
+    project = _project(project)
+    with _reporting(project):
+        agents = list_agents(project)
+    if not agents:
+        typer.echo(f"no agents in {project / AGENTS_DIR}/")
+        return
+    name_width = max(len(agent.name) for agent in agents)
+    published = [agent.latest for agent in agents if agent.latest is not None]
+    sequence_width = max((len(f"v{record.sequence}") for record in published), default=0)
+    author_width = max((len(record.author) for record in published), default=0)
+    for agent in agents:
+        record = agent.latest
+        if record is None:
+            columns = (agent.name.ljust(name_width), NEVER_PUBLISHED)
+        else:
+            columns = (
+                agent.name.ljust(name_width),
+                f"v{record.sequence}".ljust(sequence_width),
+                short_id(record.content_id),
+                _date(record),
+                record.author.ljust(author_width),
+                "" if agent.has_folder else NO_FOLDER,
+            )
+        typer.echo("  ".join(columns).rstrip())
 
 
 @agent_app.command("publish")
@@ -332,7 +386,7 @@ def history_command(name: NameArgument, project: ProjectOption = Path()) -> None
     first line of each message.
     """
     project = _project(project)
-    with _reporting(project), Store.open(project) as store:
+    with _reporting(project), Store.open(project, read_only=True) as store:
         records = store.registry.history(name)
     if not records:
         _fail(f"agent {name!r} has no published versions")
@@ -366,7 +420,7 @@ def show_command(
     name, at, ref = target.partition("@")
     name = _agent_name(name)
     project = _project(project)
-    with _reporting(project), Store.open(project) as store:
+    with _reporting(project), Store.open(project, read_only=True) as store:
         record = resolve(store, name, ref if at else None)
         snapshot = load_snapshot(store, record)
     for line in _show_lines(record, snapshot):
@@ -427,7 +481,7 @@ def diff_command(  # noqa: PLR0913
     failed = FAILED_WITH_EXIT_CODE if exit_code else FAILED
     with (
         _reporting(project, "cannot compare the working copy", failed),
-        Store.open(project) as store,
+        Store.open(project, read_only=True) as store,
     ):
         old: Side
         new: Side

@@ -13,11 +13,12 @@ names only.
 
 import re
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
-from conveyor.contracts import ContractResolutionError, resolve_contract_schemas
+from conveyor.contracts import ContractResolutionError, JsonSchema, resolve_contract_schemas
 from conveyor.model.agent import Agent
 from conveyor.model.errors import ConfigError, Issue
 from conveyor.model.factory import agent_references, raw_agent_references
@@ -37,6 +38,27 @@ type AgentFolderCheck = Callable[[Path], list[Issue]]
 """Checks one agent folder and returns its issues."""
 
 
+@dataclass(frozen=True)
+class AgentInspection:
+    """What checking an agent folder found: its problems and, when valid, what it holds.
+
+    Callers that go on to use the agent (publishing snapshots it) take the parsed agent and
+    its contract schemas from here, so `agent.yaml` is read and each contract module imported
+    once.
+
+    Attributes:
+        issues: Every problem found; empty if the agent is valid.
+        agent: The validated `agent.yaml`; `None` if it could not be read or validated.
+        schemas: The JSON Schema of each contract reference that resolved, keyed by
+            reference; empty for a folder outside a project, whose references are not
+            resolved.
+    """
+
+    issues: tuple[Issue, ...]
+    agent: Agent | None = None
+    schemas: Mapping[str, JsonSchema] = field(default_factory=dict[str, JsonSchema])
+
+
 def check_agent_folder(folder: Path) -> list[Issue]:
     """Validate an agent folder: its `agent.yaml` and the files it points to.
 
@@ -46,19 +68,36 @@ def check_agent_folder(folder: Path) -> list[Issue]:
     Returns:
         Every problem found; empty if the agent is valid.
     """
+    return list(inspect_agent_folder(folder).issues)
+
+
+def inspect_agent_folder(folder: Path) -> AgentInspection:
+    """Validate an agent folder and keep what validating it read.
+
+    Args:
+        folder: The agent's folder.
+
+    Returns:
+        Every problem found, the parsed agent and the schemas of its resolved contracts.
+    """
     file = folder / AGENT_FILE
     if not file.is_file():
-        return [Issue(file=folder, message=f"not an agent folder: no {AGENT_FILE}")]
+        return AgentInspection(
+            (Issue(file=folder, message=f"not an agent folder: no {AGENT_FILE}"),)
+        )
     try:
         document = read_document(file)
     except ConfigError as error:
-        return list(error.issues)
+        return AgentInspection(error.issues)
     try:
         agent = validate_document(document, Agent)
     except ConfigError as error:
         # Still resolve whichever contract references are well-formed, so every problem is
         # reported in one pass.
-        return [*error.issues, *_contract_issues(folder, document, _raw_contracts(document.data))]
+        contract_issues, schemas = _resolve_contracts(
+            folder, document, _raw_contracts(document.data)
+        )
+        return AgentInspection((*error.issues, *contract_issues), schemas=schemas)
 
     issues: list[Issue] = []
     folder_name = folder.resolve().name
@@ -72,22 +111,34 @@ def check_agent_folder(folder: Path) -> list[Issue]:
         message = f"eval suite {str(agent.quality_gate.suite)!r} not found"
         issues.append(document.issue(("quality_gate", "suite"), message))
     contracts = {"input": agent.brief.input, "output": agent.brief.output}
-    issues.extend(_contract_issues(folder, document, contracts))
-    return issues
+    contract_issues, schemas = _resolve_contracts(folder, document, contracts)
+    issues.extend(contract_issues)
+    return AgentInspection(tuple(issues), agent, schemas)
 
 
-def _contract_issues(folder: Path, document: Document, refs: Mapping[str, str]) -> list[Issue]:
-    """Resolve contract references, keyed by Brief field, when the agent is in a project."""
+def _resolve_contracts(
+    folder: Path, document: Document, refs: Mapping[str, str]
+) -> tuple[list[Issue], dict[str, JsonSchema]]:
+    """Resolve contract references, keyed by Brief field, when the agent is in a project.
+
+    Each distinct reference is resolved once, so its module is imported once; a failure is
+    reported against every field that names it.
+    """
     root = agent_project_root(folder)
     if root is None:
-        return []
+        return [], {}
     issues: list[Issue] = []
-    for field, ref in refs.items():
-        try:
-            resolve_contract_schemas(root, [ref])
-        except ContractResolutionError as error:
-            issues.append(document.issue(("brief", field), str(error)))
-    return issues
+    schemas: dict[str, JsonSchema] = {}
+    failures: dict[str, str] = {}
+    for brief_field, ref in refs.items():
+        if ref not in schemas and ref not in failures:
+            try:
+                schemas.update(resolve_contract_schemas(root, [ref]))
+            except ContractResolutionError as error:
+                failures[ref] = str(error)
+        if ref in failures:
+            issues.append(document.issue(("brief", brief_field), failures[ref]))
+    return issues, schemas
 
 
 class _LooseBrief(BaseModel):

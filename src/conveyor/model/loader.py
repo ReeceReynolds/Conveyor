@@ -10,7 +10,7 @@ import io
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Protocol
+from typing import IO, Final, Protocol
 
 from pydantic import BaseModel, ValidationError
 from pydantic_core import ErrorDetails
@@ -40,6 +40,9 @@ MAX_VALUES = 100_000
 Aliases can nest, so a few lines can expand to billions of values. Real configuration is
 nowhere near this; the cap keeps a hostile or mistaken file from hanging validation.
 """
+
+_NEVER_WRAP: Final = 1 << 30
+"""A line width no value reaches, so the dumper never folds a long value onto two lines."""
 
 
 # ruamel.yaml's node and error attributes are unannotated, so strict type checking sees them as
@@ -259,7 +262,13 @@ def _safe_yaml() -> _Yaml:
 
 
 def _safe_yaml_dumper() -> _YamlDumper:
-    return YAML(typ="safe", pure=True)
+    yaml = YAML(typ="safe", pure=True)
+    # Block style in field order, never wrapped: the way agent.yaml files are written by hand.
+    yaml.default_flow_style = False
+    yaml.representer.sort_base_mapping_type_on_output = False
+    yaml.width = _NEVER_WRAP
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    return yaml
 
 
 def _located(error: MarkedYAMLError) -> _LocatedError:
@@ -450,7 +459,8 @@ def dump_yaml(model: BaseModel) -> str:
     """Serialise a model as YAML that loads back into an equal model.
 
     Fields left at their defaults are omitted, matching how the files are written by hand.
-    Keys are written in alphabetical order.
+    Keys follow the order the model defines its fields in, every mapping and list is written
+    in block style, and long values are never wrapped onto a second line.
 
     Args:
         model: The model to serialise.
