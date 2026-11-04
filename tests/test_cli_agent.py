@@ -1,6 +1,7 @@
 """The `conveyor agent` commands, through Typer's test runner."""
 
 import getpass
+import os
 import re
 import shutil
 from datetime import UTC, datetime, timedelta
@@ -34,6 +35,11 @@ def _redacted(text: str, project: Path, name: str = "implementer") -> str:
         text = text.replace(record.content_id, f"<v{record.sequence} id>")
         text = text.replace(record.content_id[:12], f"<v{record.sequence}>")
     return text
+
+
+def _posix(output: str) -> str:
+    """Output with paths written with `/`, as on Windows they print with `\\`."""
+    return output.replace(os.sep, "/")
 
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
@@ -142,7 +148,7 @@ def test_publish_prints_the_problems_of_an_invalid_agent(project: Path) -> None:
     result = _agent("publish", "implementer", "-m", "initial")
 
     assert result.exit_code == 1
-    assert result.output.splitlines() == [
+    assert _posix(result.output).splitlines() == [
         (
             "agents/implementer/agent.yaml:21:12: quality_gate.repeats: input should be greater"
             " than or equal to 1"
@@ -159,7 +165,7 @@ def test_publish_reports_an_unknown_agent() -> None:
     result = _agent("publish", "ghost", "-m", "initial")
 
     assert result.exit_code == 1
-    assert result.output == snapshot("""\
+    assert _posix(result.output) == snapshot("""\
 agents/ghost: not an agent folder: no agent.yaml
 Found 1 problem in ghost; nothing published.
 """)
@@ -622,7 +628,7 @@ def test_diff_working_reports_an_invalid_working_copy(project: Path) -> None:
     result = _agent("diff", "implementer", "--working")
 
     assert result.exit_code == 1
-    assert result.output == snapshot("""\
+    assert _posix(result.output) == snapshot("""\
 agents/implementer/agent.yaml:5:17: brief.instructions: file 'prompt.md' not found
 Found 1 problem in implementer; cannot compare the working copy.
 """)

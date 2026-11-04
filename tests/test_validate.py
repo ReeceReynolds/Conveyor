@@ -16,11 +16,16 @@ from conveyor.model.errors import Issue, format_loc
 
 
 def _triples(issues: tuple[Issue, ...] | list[Issue]) -> list[tuple[str, str, str]]:
-    """Each issue as (file:line:column, field path, message), for readable snapshots."""
+    """Each issue as (file:line:column, field path, message), for readable snapshots.
+
+    Files are written with `/`, so the snapshots hold on Windows too.
+    """
     return [
         (
             ":".join(
-                str(part) for part in (issue.file, issue.line, issue.column) if part is not None
+                str(part)
+                for part in (issue.file.as_posix(), issue.line, issue.column)
+                if part is not None
             ),
             format_loc(issue.loc),
             issue.message,

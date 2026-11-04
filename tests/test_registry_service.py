@@ -55,7 +55,12 @@ def _publish(project: Path, message: str = "change", *, minutes: int = 0) -> Pub
 
 
 def _issues(error: PublishError, root: Path) -> list[str]:
-    return [issue.render().replace(f"{root}/", "") for issue in error.issues]
+    """Each issue rendered with its file relative to `root` and written with `/`."""
+    rendered: list[str] = []
+    for issue in error.issues:
+        file = issue.file.relative_to(root) if issue.file.is_relative_to(root) else issue.file
+        rendered.append(issue.render().replace(str(issue.file), file.as_posix(), 1))
+    return rendered
 
 
 # --- Publishing -------------------------------------------------------------------------------

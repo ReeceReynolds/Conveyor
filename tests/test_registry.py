@@ -259,9 +259,25 @@ _GOOD = {"implementer/prompt.md": b"Go.\n", "implementer/evals/a.yaml": b"x: 1\n
 
 
 def _snapshot_error(agent: Agent, schemas: dict[str, JsonSchema] | None = None) -> str:
+    """The error's message, with the file it names written with `/` on every platform."""
     with pytest.raises(SnapshotError) as caught:
         build_snapshot(Path("implementer"), agent, _schemas() if schemas is None else schemas)
-    return str(caught.value)
+    file = caught.value.file
+    message = str(caught.value)
+    return message if file is None else message.replace(str(file), file.as_posix(), 1)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a backslash separates folders on Windows")
+def test_an_eval_file_name_with_a_backslash_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _layout(tmp_path, {**_GOOD, "implementer/evals/case\\one.yaml": b"x: 1\n"})
+
+    assert _snapshot_error(BASE.agent) == (
+        "implementer/evals/case\\one.yaml: file name 'case\\\\one.yaml' is not portable: it"
+        " must not contain a backslash"
+    )
 
 
 def test_build_snapshot_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -306,9 +322,6 @@ def test_build_snapshot_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     huge = Agent.model_validate(data)
     errors["not representable"] = _snapshot_error(huge)
     (tmp_path / "implementer/evals/folder.yaml").rmdir()
-    (tmp_path / "implementer/evals/case\\one.yaml").write_text("x: 1\n")
-    errors["backslash in an eval file name"] = _snapshot_error(BASE.agent)
-    (tmp_path / "implementer/evals/case\\one.yaml").unlink()
     unreadable = tmp_path / "implementer/prompt.md"
     read_bytes = Path.read_bytes
 
@@ -345,10 +358,6 @@ def test_build_snapshot_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             "not representable": (
                 "implementer: cannot snapshot agent 'implementer': value has no canonical JSON"
                 " form: 1152921504606846976 exceeds safe integer domain for JSON floats"
-            ),
-            "backslash in an eval file name": (
-                "implementer/evals/case\\one.yaml: file name 'case\\\\one.yaml' is not"
-                " portable: it must not contain a backslash"
             ),
             "unreadable instructions": ("implementer/prompt.md: cannot be read: Permission denied"),
         }

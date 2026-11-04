@@ -1,5 +1,6 @@
 """The `conveyor` command line, through Typer's test runner."""
 
+import os
 import textwrap
 from pathlib import Path
 
@@ -77,7 +78,8 @@ def test_validate_prints_every_problem_and_exits_one(broken_project: Path) -> No
     result = runner.invoke(app, ["validate", str(broken_project)])
 
     assert result.exit_code == 1
-    assert result.output == snapshot("""\
+    # Paths print with `\\` on Windows.
+    assert result.output.replace(os.sep, "/") == snapshot("""\
 p/agents/a/agent.yaml:3:74: brief.colour: unknown field
 p/agents/a/agent.yaml:6:46: quality_gate.min_pass_rate: input should be less than or equal to 1
 p/factories/f.yaml:5:11: stages[1].id: duplicate stage id 'x' (first used by stages[0])
