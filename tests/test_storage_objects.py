@@ -22,6 +22,9 @@ from conveyor.storage.objects import sync_directory
 
 HELLO_DIGEST = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
 
+SYNCS_DIRECTORIES = os.name == "posix"
+"""Whether this platform can open a directory to fsync it (not Windows)."""
+
 
 @pytest.fixture
 def objects(tmp_path: Path) -> ObjectStore:
@@ -160,18 +163,15 @@ def test_put_makes_the_object_and_its_name_durable(
     file = (objects.root / first[:2] / first[2:]).stat().st_ino
     fan_out = (objects.root / first[:2]).stat().st_ino
     root = objects.root.stat().st_ino
-    # A new fan-out folder is itself a new name, in the root.
-    assert events == [
-        ("sync file", file),
-        ("replace", file),
-        ("sync dir", fan_out),
-        ("sync dir", root),
-    ]
+    # A new fan-out folder is itself a new name, in the root. Windows cannot sync folders.
+    folders = [("sync dir", fan_out), ("sync dir", root)] if SYNCS_DIRECTORIES else []
+    assert events == [("sync file", file), ("replace", file), *folders]
 
     events.clear()
     second = objects.put(_same_fan_out(first))
     other = (objects.root / second[:2] / second[2:]).stat().st_ino
-    assert events == [("sync file", other), ("replace", other), ("sync dir", fan_out)]
+    folders = [("sync dir", fan_out)] if SYNCS_DIRECTORIES else []
+    assert events == [("sync file", other), ("replace", other), *folders]
 
     events.clear()
     objects.put(b"hello")
@@ -195,6 +195,7 @@ def test_directories_are_not_synced_where_that_is_unsupported(
     assert opened == []
 
 
+@pytest.mark.skipif(not SYNCS_DIRECTORIES, reason="Windows cannot open a directory to sync it")
 @pytest.mark.parametrize(
     ("error", "raised"),
     [(errno.EINVAL, False), (errno.ENOTSUP, False), (errno.EIO, True)],
@@ -258,7 +259,8 @@ def test_an_unreadable_object_is_a_storage_error(objects: ObjectStore) -> None:
         objects.get(HELLO_DIGEST)
 
     assert caught.value.path == path
-    assert caught.value.reason == os.strerror(errno.EISDIR)
+    # Windows refuses to open a folder as a file rather than naming the problem.
+    assert caught.value.reason == os.strerror(errno.EISDIR if os.name == "posix" else errno.EACCES)
 
 
 def test_a_file_where_a_fan_out_folder_goes_is_a_storage_error(objects: ObjectStore) -> None:
@@ -269,4 +271,39 @@ def test_a_file_where_a_fan_out_folder_goes_is_a_storage_error(objects: ObjectSt
     with pytest.raises(StateUnavailableError) as caught:
         objects.get(HELLO_DIGEST)
 
-    assert caught.value.reason == os.strerror(errno.ENOTDIR)
+    assert caught.value.path == objects.root / HELLO_DIGEST[:2]
+    assert caught.value.reason == "not a folder"
+
+
+def _replace_refused(_self: Path, _target: Path) -> Path:
+    """`Path.replace` as Windows does it when another process has the target open."""
+    raise PermissionError(errno.EACCES, "Access is denied")
+
+
+def test_a_refused_replace_of_an_intact_object_is_a_completed_write(
+    objects: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A concurrent writer of the same content stored it first and holds it open."""
+
+    def other_writer_first(_self: Path, target: Path) -> Path:
+        target.write_bytes(b"hello")
+        return _replace_refused(_self, target)
+
+    monkeypatch.setattr(Path, "replace", other_writer_first)
+
+    assert objects.put(b"hello") == HELLO_DIGEST
+
+    monkeypatch.undo()
+    assert objects.get(HELLO_DIGEST) == b"hello"
+    assert _files(objects.root) == [f"2c/{HELLO_DIGEST[2:]}"]
+
+
+def test_a_refused_replace_of_anything_else_is_a_storage_error(
+    objects: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "replace", _replace_refused)
+
+    with pytest.raises(StateUnavailableError, match="Access is denied"):
+        objects.put(b"hello")
+
+    assert _files(objects.root) == []
