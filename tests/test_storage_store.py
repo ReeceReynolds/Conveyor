@@ -380,6 +380,28 @@ def test_read_only_open_where_the_state_folder_cannot_be_written(
         writer.close()
 
 
+def test_read_only_open_reads_versions_still_in_the_wal_without_its_shm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A copy of a live store (say, a cache) has a -wal but no -shm: never open it immutable.
+
+    An immutable connection ignores the -wal, so the versions committed to it would vanish.
+    """
+    source, copy = tmp_path / "source", tmp_path / "copy"
+    writer = _published(source)
+    try:
+        # The writer is still open, so its commits sit in the -wal, not yet in the database.
+        (copy / STATE_DIR).mkdir(parents=True)
+        for name in ("conveyor.db", "conveyor.db-wal"):
+            (copy / STATE_DIR / name).write_bytes((source / STATE_DIR / name).read_bytes())
+    finally:
+        writer.close()
+    monkeypatch.setattr(database, "_writable", _never_writable)
+
+    with Store.open(copy, read_only=True) as store:
+        assert store.registry.agents() == ("implementer",)
+
+
 @pytest.mark.skipif(
     sys.platform == "win32" or os.geteuid() == 0,
     reason="needs POSIX folder permissions, which root ignores",

@@ -32,8 +32,10 @@ Commands that only read use it, and only `publish` opens the store for writing.
     `PRAGMA query_only=ON`, and the last connection to close removes the `-wal` and `-shm`
     files.
   - When the folder cannot be written, the database opens with `mode=ro`, and also as
-    `immutable` if no `-shm` file exists. With no `-shm` file, no process is writing, and none
-    can create one in that folder.
+    `immutable` if neither a `-wal` nor a `-shm` file exists. With neither, no process is
+    writing, and none can create them in that folder. An immutable connection ignores the
+    `-wal` file, so a copy of a live store (a `-wal` holding committed versions, but no
+    `-shm`) is never opened as immutable: it is read through the `-wal`, or fails to open.
 
 ## Alternatives considered
 

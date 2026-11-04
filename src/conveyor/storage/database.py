@@ -39,6 +39,9 @@ _PRAGMAS: Final = (
     "PRAGMA foreign_keys=ON",
 )
 
+_WAL_FILES: Final = ("-wal", "-shm")
+"""The files SQLite keeps beside a database in write-ahead-log mode, by suffix."""
+
 
 def connect(url: str) -> Engine:
     """Create an engine for a supported database URL.
@@ -71,7 +74,9 @@ def connect_read_only(database: Path) -> Engine:
     `PRAGMA query_only`, which refuses every write; the last connection to close removes the
     two files again, as a connection opened read-only cannot. Where it cannot be written (a
     read-only checkout), the database is opened with SQLite's `mode=ro`, and as `immutable`
-    if its `-shm` file is missing too, since nothing can be writing to it there.
+    if its `-wal` and `-shm` files are missing too, since nothing can be writing to it there.
+    An immutable connection ignores the `-wal` file, so with one present (and committed
+    versions possibly in it) the database is never opened as immutable.
 
     Args:
         database: The database file; it must exist.
@@ -84,7 +89,9 @@ def connect_read_only(database: Path) -> Engine:
         url = URL.create("sqlite", database=str(database))
     else:
         query = {"mode": "ro", "uri": "true"}
-        if not database.with_name(f"{database.name}-shm").exists():
+        if not any(
+            database.with_name(f"{database.name}{suffix}").exists() for suffix in _WAL_FILES
+        ):
             query["immutable"] = "1"
         url = URL.create("sqlite", database=database.resolve().as_uri(), query=query)
     engine = create_engine(url)
