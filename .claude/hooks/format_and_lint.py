@@ -9,6 +9,7 @@ library only.
 """
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -91,9 +92,17 @@ def run(command: list[str]) -> subprocess.CompletedProcess[str]:
 
     Returns:
         The finished process.
+
+    Raises:
+        FileNotFoundError: If the program is not on `PATH`.
     """
+    # Resolve the program as a shell would: on Windows, `pnpm` is `pnpm.cmd`, which
+    # subprocess does not find by name.
+    program = shutil.which(command[0])
+    if program is None:
+        raise FileNotFoundError(command[0])
     return subprocess.run(  # noqa: S603 -- fixed argv built above; the only input is a path
-        command,
+        [program, *command[1:]],
         cwd=PROJECT_DIR,
         capture_output=True,
         text=True,
