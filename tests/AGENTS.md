@@ -13,7 +13,8 @@ the repository itself (docs, links, `AGENTS.md` files, skills, hooks, import-lin
 - `conftest.py`: `in_fixtures` runs a test from `fixtures/` so reported paths are short and
   stable; `example` is the `examples/prd-to-pr` reference factory, which must stay valid.
 - Build throwaway projects under `tmp_path`; never write into the repository.
-- CLI tests use Typer's `CliRunner`, not subprocesses.
+- CLI tests use Typer's `CliRunner`, not subprocesses. The one exception checks what a command
+  imports, which needs a fresh interpreter.
 
 ## Snapshots and properties
 
