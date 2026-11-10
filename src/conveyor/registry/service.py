@@ -245,7 +245,7 @@ def snapshot_working_copy(project_root: Path, name: str) -> AgentSnapshot:
             issue = Issue(file=path, message="symbolic links are not followed")
             raise PublishError(name, [issue])
     # Validating reads agent.yaml and resolves the contracts; the snapshot reuses both, so
-    # each contract module is imported once per publish.
+    # each contract module is imported once per publish (a test counts the imports).
     inspection = inspect_agent_folder(folder)
     if inspection.issues or inspection.agent is None:
         raise PublishError(name, inspection.issues)

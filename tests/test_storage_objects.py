@@ -307,3 +307,122 @@ def test_a_refused_replace_of_anything_else_is_a_storage_error(
         objects.put(b"hello")
 
     assert _files(objects.root) == []
+
+
+def _refuse_reads(monkeypatch: pytest.MonkeyPatch, times: int) -> list[Path]:
+    """Make the next `times` reads fail as Windows fails them during another writer's replace."""
+    original = Path.read_bytes
+    reads: list[Path] = []
+
+    def read_bytes(self: Path) -> bytes:
+        reads.append(self)
+        if len(reads) <= times:
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return original(self)
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    return reads
+
+
+def test_a_read_refused_during_a_concurrent_replace_is_retried(
+    objects: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Windows CI hit this: one publisher checked the object while another replaced it.
+    objects.put(b"hello")
+    monkeypatch.setattr(objects_module, "_READS_REFUSED_DURING_REPLACE", True)
+    monkeypatch.setattr(objects_module, "_REPLACE_RETRY_SECONDS", 0)
+    reads = _refuse_reads(monkeypatch, times=2)
+
+    assert objects.put(b"hello") == HELLO_DIGEST
+
+    assert len(reads) == 3
+    assert _files(objects.root) == [f"2c/{HELLO_DIGEST[2:]}"]
+
+
+def test_a_refused_replace_whose_check_is_refused_too_is_retried(
+    objects: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Our replace is refused, and so is the read that checks the other writer's copy."""
+    original_replace = Path.replace
+
+    def other_writer_first(self: Path, target: Path) -> Path:
+        original_replace(self, target)
+        raise PermissionError(errno.EACCES, "Access is denied")
+
+    monkeypatch.setattr(objects_module, "_READS_REFUSED_DURING_REPLACE", True)
+    monkeypatch.setattr(objects_module, "_REPLACE_RETRY_SECONDS", 0)
+    monkeypatch.setattr(Path, "replace", other_writer_first)
+    original_read = Path.read_bytes
+    reads: list[Path] = []
+
+    def read_bytes(self: Path) -> bytes:
+        reads.append(self)
+        # The first check, before writing, finds no object; the next read is refused once.
+        if len(reads) == 1:
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return original_read(self)
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+
+    assert objects.put(b"hello") == HELLO_DIGEST
+
+    monkeypatch.undo()
+    assert objects.get(HELLO_DIGEST) == b"hello"
+    assert len(reads) == 2
+
+
+def test_a_read_refused_for_longer_than_a_replace_takes_is_a_storage_error(
+    objects: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    objects.put(b"hello")
+    monkeypatch.setattr(objects_module, "_READS_REFUSED_DURING_REPLACE", True)
+    monkeypatch.setattr(objects_module, "_REPLACE_WAIT_SECONDS", 0.05)
+    monkeypatch.setattr(objects_module, "_REPLACE_RETRY_SECONDS", 0.01)
+    reads = _refuse_reads(monkeypatch, times=10_000)
+
+    with pytest.raises(StateUnavailableError, match="Permission denied"):
+        objects.put(b"hello")
+
+    assert len(reads) > 1
+
+
+def test_a_refused_read_is_not_retried_where_replacing_never_causes_one(
+    objects: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    objects.put(b"hello")
+    monkeypatch.setattr(objects_module, "_READS_REFUSED_DURING_REPLACE", False)
+    reads = _refuse_reads(monkeypatch, times=1)
+
+    with pytest.raises(StateUnavailableError, match="Permission denied"):
+        objects.put(b"hello")
+
+    assert len(reads) == 1
+
+
+def test_a_get_refused_during_a_concurrent_replace_is_retried(
+    objects: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A publisher reads the latest snapshot while a slower one replaces that same object."""
+    objects.put(b"hello")
+    monkeypatch.setattr(objects_module, "_READS_REFUSED_DURING_REPLACE", True)
+    monkeypatch.setattr(objects_module, "_REPLACE_RETRY_SECONDS", 0)
+    reads = _refuse_reads(monkeypatch, times=2)
+
+    assert objects.get(HELLO_DIGEST) == b"hello"
+
+    assert len(reads) == 3
+
+
+def test_a_folder_where_an_object_goes_is_reported_without_waiting(
+    objects: ObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows refuses to open a folder with the same error a concurrent replace causes."""
+    path = objects.root / HELLO_DIGEST[:2] / HELLO_DIGEST[2:]
+    path.mkdir(parents=True)
+    monkeypatch.setattr(objects_module, "_READS_REFUSED_DURING_REPLACE", True)
+    reads = _refuse_reads(monkeypatch, times=10_000)
+
+    with pytest.raises(StateUnavailableError, match="Permission denied"):
+        objects.get(HELLO_DIGEST)
+
+    assert len(reads) == 1

@@ -6,13 +6,20 @@ An agent's Brief names its input and output contracts with dotted references suc
 see each other's modules; see ADR 0011.
 """
 
-from conveyor.contracts.resolver import ContractResolutionError, resolve_contract
-from conveyor.contracts.schema import JsonSchema, contract_schema, resolve_contract_schemas
+from conveyor.contracts.resolver import ContractResolutionError, resolve_contract, resolve_each
+from conveyor.contracts.schema import (
+    ContractSchemas,
+    JsonSchema,
+    contract_schema,
+    resolve_contract_schemas,
+)
 
 __all__ = [
     "ContractResolutionError",
+    "ContractSchemas",
     "JsonSchema",
     "contract_schema",
     "resolve_contract",
     "resolve_contract_schemas",
+    "resolve_each",
 ]
