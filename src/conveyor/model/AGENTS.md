@@ -23,7 +23,8 @@ Schemas. It knows nothing about the CLI, storage or running agents.
 - Rules pydantic skips while other fields are invalid get a raw-data fallback (see
   `raw_stage_graph_violations`), so a person sees every problem the first time.
 - Only `loader.py` touches ruamel.yaml (ADR 0009). It rejects duplicate keys, explicit tags,
-  merge keys and recursive aliases, and caps alias expansion (`MAX_VALUES`).
+  merge keys and recursive aliases, caps alias expansion (`MAX_VALUES`) and reports nesting
+  too deep to read instead of crashing.
 - Checks that read the filesystem (agent folders, referenced agents) live in `checks.py`, not in
   the models: a model instance is valid on its own; whether its files exist is a separate check.
 

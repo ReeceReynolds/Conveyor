@@ -152,6 +152,20 @@ def test_alias_expansion_is_capped() -> None:
     assert errors[0][2] == f"document expands to more than {MAX_VALUES:,} values; check its aliases"
 
 
+@pytest.mark.parametrize("depth", [500, 3000])
+def test_nesting_too_deep_to_parse_is_reported(depth: int) -> None:
+    # ruamel's composer recurses once per level; without a guard this was a RecursionError.
+    errors = _parse_errors("x: " + "[" * depth + "]" * depth + "\n")
+
+    assert errors == [("1:1", "", "document is nested too deeply to read")]
+
+
+def test_nesting_within_reach_still_parses() -> None:
+    document = parse_yaml("x: " + "[" * 100 + "]" * 100 + "\n", FILE)
+
+    assert ("x", *[0] * 99) in document
+
+
 def test_read_document_reports_unreadable_files(tmp_path: Path) -> None:
     binary = tmp_path / "binary.yaml"
     binary.write_bytes(b"\xff\xfe\x00")
