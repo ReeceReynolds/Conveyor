@@ -970,6 +970,17 @@ def test_text_diff_replaces_a_long_stretch_it_cannot_pin_down() -> None:
     assert diff.unified.splitlines()[2] == "@@ -1,3002 +1,3002 @@"
 
 
+def test_text_diff_of_a_long_text_with_a_moved_half_keeps_the_other_half() -> None:
+    # Lines that changed order cannot all pin the texts together; the longest run that kept
+    # its order does, and the rest is removed in one place and added in the other.
+    old = [f"line {number}\n" for number in range(3000)]
+    new = [*old[1500:], *old[:1500]]
+
+    diff = text_diff("".join(old), "".join(new), old_name="x", new_name="x")
+
+    assert (diff.added, diff.removed) == (1500, 1500)
+
+
 def test_text_diff_of_equal_texts_is_empty() -> None:
     assert text_diff("a\nb\n", "a\nb\n", old_name="x", new_name="x") == TextDiff(
         unified="", added=0, removed=0
