@@ -1,6 +1,8 @@
 """The `conveyor` command line, through Typer's test runner."""
 
 import os
+import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -120,3 +122,31 @@ def test_nothing_to_validate_is_a_usage_error(
 
     assert result.exit_code == 2
     assert "has no agent.yaml" in result.output
+
+
+_HEAVY_IMPORTS = ("sqlalchemy", "alembic", "conveyor.storage", "conveyor.registry")
+
+
+@pytest.mark.parametrize("arguments", [["--help"], ["--version"], ["validate", "PROJECT"]])
+def test_commands_outside_the_registry_do_not_import_storage(
+    arguments: list[str], example: Path
+) -> None:
+    # SQLAlchemy and Alembic take longer to import than everything else `validate` needs, so
+    # only the `agent` commands may load them. This runs in a fresh interpreter because the
+    # test process has already imported them.
+    script = (
+        "import sys\n"
+        "from conveyor.cli import app\n"
+        "try:\n"
+        "    app(sys.argv[1:])\n"
+        "except SystemExit as stop:\n"
+        "    assert not stop.code, stop.code\n"
+        f"print([name for name in {_HEAVY_IMPORTS!r} if name in sys.modules])\n"
+    )
+    command = [argument.replace("PROJECT", str(example)) for argument in arguments]
+
+    result = subprocess.run(  # noqa: S603 -- runs this interpreter on a fixed script
+        [sys.executable, "-c", script, *command], capture_output=True, text=True, check=True
+    )
+
+    assert result.stdout.splitlines()[-1] == "[]"
