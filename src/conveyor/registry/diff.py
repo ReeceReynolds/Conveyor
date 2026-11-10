@@ -13,6 +13,8 @@ when the two snapshots have the same content ID.
 
 import difflib
 import json
+from bisect import bisect_left
+from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from enum import StrEnum
 from itertools import groupby
@@ -31,6 +33,10 @@ MAX_SUMMARY_CHANGES = 6
 """Most changes a summary spells out; the rest are counted as `and N more`."""
 MAX_SUMMARY_VALUE = 40
 """Longest value a summary shows before eliding the rest with `…`."""
+CONTEXT_LINES = 3
+"""Unchanged lines a text diff shows around each change."""
+MAX_MATCHED_LINES = 2_000
+"""Most lines (old plus new) a text diff matches line by line in one stretch."""
 
 
 class Block(StrEnum):
@@ -215,8 +221,149 @@ def _lines(text: str) -> list[str]:
     return lines
 
 
+type _Opcode = tuple[str, int, int, int, int]
+"""How to turn `old[i1:i2]` into `new[j1:j2]`: (tag, i1, i2, j1, j2), as `difflib` defines it."""
+
+_EQUAL, _REPLACE = "equal", "replace"
+
+
+def _matched(old: Sequence[str], new: Sequence[str], at: tuple[int, int]) -> list[_Opcode]:
+    """Match two short runs of lines with `difflib`, placing the result at offset `at`.
+
+    `autojunk` is off: it stops matching any line that makes up more than 1% of a run of 200
+    or more, which reports one changed line in a repetitive file as hundreds.
+    """
+    i, j = at
+    codes = difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes()
+    return [(tag, i + i1, i + i2, j + j1, j + j2) for tag, i1, i2, j1, j2 in codes]
+
+
+def _anchors(old: Sequence[str], new: Sequence[str]) -> list[tuple[int, int]]:
+    """Pair up the lines that occur exactly once in both texts and kept their order.
+
+    This is the first step of a patience diff: such lines are almost certainly the same
+    line, so they pin the two texts together and only the gaps between them need matching.
+    The pairs are the longest run of them that is increasing in both texts.
+    """
+    seen_old, seen_new = Counter(old), Counter(new)
+    position = {line: j for j, line in enumerate(new) if seen_new[line] == 1}
+    pairs = [
+        (i, position[line])
+        for i, line in enumerate(old)
+        if seen_old[line] == 1 and line in position
+    ]
+    # Longest increasing subsequence of the positions in `new`, by patience sorting.
+    tails: list[int] = []  # tails[k]: index into `pairs` ending the best run of length k + 1
+    before: list[int | None] = []
+    for index, (_, j) in enumerate(pairs):
+        k = bisect_left(tails, j, key=lambda tail: pairs[tail][1])
+        before.append(tails[k - 1] if k else None)
+        if k == len(tails):
+            tails.append(index)
+        else:
+            tails[k] = index
+    run: list[tuple[int, int]] = []
+    last = tails[-1] if tails else None
+    while last is not None:
+        run.append(pairs[last])
+        last = before[last]
+    return run[::-1]
+
+
+def _region(
+    old: Sequence[str], new: Sequence[str], at: tuple[int, int], *, split: bool
+) -> list[_Opcode]:
+    """Describe how one stretch of `old` becomes one stretch of `new`, placed at offset `at`.
+
+    The lines the two start and end with in common are set aside first, which leaves a small
+    edit in a large stretch with almost nothing to match. What remains is matched directly if
+    it is short. Otherwise, with `split`, it is cut at its anchors and each gap between them
+    described on its own; a long gap, which has no anchors left in it, is replaced whole.
+    """
+    i, j = at
+    shared = min(len(old), len(new))
+    head = 0
+    while head < shared and old[head] == new[head]:
+        head += 1
+    tail = 0
+    while tail < shared - head and old[-1 - tail] == new[-1 - tail]:
+        tail += 1
+    old_end, new_end = len(old) - tail, len(new) - tail
+    old, new, start = old[head:old_end], new[head:new_end], (i + head, j + head)
+
+    codes: list[_Opcode] = [(_EQUAL, i, i + head, j, j + head)]
+    if len(old) + len(new) <= MAX_MATCHED_LINES:
+        codes += _matched(old, new, start)
+    elif split:
+        done_old = done_new = 0
+        for in_old, in_new in _anchors(old, new):
+            gap = (start[0] + done_old, start[1] + done_new)
+            codes += _region(old[done_old:in_old], new[done_new:in_new], gap, split=False)
+            anchor = (start[0] + in_old, start[1] + in_new)
+            codes.append((_EQUAL, anchor[0], anchor[0] + 1, anchor[1], anchor[1] + 1))
+            done_old, done_new = in_old + 1, in_new + 1
+        gap = (start[0] + done_old, start[1] + done_new)
+        codes += _region(old[done_old:], new[done_new:], gap, split=False)
+    else:
+        codes.append((_REPLACE, start[0], i + old_end, start[1], j + new_end))
+    codes.append((_EQUAL, i + old_end, i + old_end + tail, j + new_end, j + new_end + tail))
+    return codes
+
+
+def _opcodes(old: Sequence[str], new: Sequence[str]) -> list[_Opcode]:
+    """Describe how `old` becomes `new`, in time close to linear in their length.
+
+    `difflib` alone takes time proportional to the lines times the changes: minutes on a
+    large file with scattered edits. See `_region` for how the work is cut down first.
+    """
+    merged: list[_Opcode] = []
+    for code in _region(old, new, (0, 0), split=True):
+        tag, i1, i2, j1, j2 = code
+        if i1 == i2 and j1 == j2:
+            continue
+        if merged and merged[-1][0] == tag == _EQUAL:
+            merged[-1] = (tag, merged[-1][1], i2, merged[-1][3], j2)
+        else:
+            merged.append(code)
+    return merged
+
+
+def _hunks(codes: list[_Opcode]) -> Iterator[list[_Opcode]]:
+    """Group opcodes into hunks with `CONTEXT_LINES` unchanged lines around each change."""
+    if not any(tag != _EQUAL for tag, *_ in codes):
+        return
+    codes = list(codes)
+    tag, i1, i2, j1, j2 = codes[0]
+    if tag == _EQUAL:
+        codes[0] = (tag, max(i1, i2 - CONTEXT_LINES), i2, max(j1, j2 - CONTEXT_LINES), j2)
+    tag, i1, i2, j1, j2 = codes[-1]
+    if tag == _EQUAL:
+        codes[-1] = (tag, i1, min(i2, i1 + CONTEXT_LINES), j1, min(j2, j1 + CONTEXT_LINES))
+    hunk: list[_Opcode] = []
+    for tag, i1, i2, j1, j2 in codes:
+        if tag == _EQUAL and i2 - i1 > 2 * CONTEXT_LINES:
+            # Enough unchanged lines to end one hunk and start the next.
+            hunk.append((tag, i1, i1 + CONTEXT_LINES, j1, j1 + CONTEXT_LINES))
+            yield hunk
+            hunk = [(tag, i2 - CONTEXT_LINES, i2, j2 - CONTEXT_LINES, j2)]
+        else:
+            hunk.append((tag, i1, i2, j1, j2))
+    yield hunk
+
+
+def _range(start: int, stop: int) -> str:
+    """Format a hunk header's line range as `diff -u` does: 1-based start and a length."""
+    length = stop - start
+    if length == 1:
+        return str(start + 1)
+    return f"{start + 1 if length else start},{length}"
+
+
 def text_diff(old: str, new: str, *, old_name: str, new_name: str) -> TextDiff:
     """Diff two texts line by line, with three lines of context.
+
+    A stretch of more than `MAX_MATCHED_LINES` lines that shares no line occurring exactly
+    once in both texts is reported as replaced whole, not matched line by line.
 
     Args:
         old: The text before.
@@ -227,13 +374,22 @@ def text_diff(old: str, new: str, *, old_name: str, new_name: str) -> TextDiff:
     Returns:
         The unified diff and its line counts; an empty diff if the texts are equal.
     """
-    diff = list(
-        difflib.unified_diff(_lines(old), _lines(new), f"a/{old_name}", f"b/{new_name}", n=3)
-    )
-    body = diff[2:]  # The two file headers also start with `-` and `+`.
-    added = sum(line.startswith("+") for line in body)
-    removed = sum(line.startswith("-") for line in body)
-    return TextDiff(unified="".join(diff), added=added, removed=removed)
+    old_lines, new_lines = _lines(old), _lines(new)
+    body: list[str] = []
+    added = removed = 0
+    for hunk in _hunks(_opcodes(old_lines, new_lines)):
+        (_, i1, _, j1, _), (_, _, i2, _, j2) = hunk[0], hunk[-1]
+        body.append(f"@@ -{_range(i1, i2)} +{_range(j1, j2)} @@\n")
+        for tag, a1, a2, b1, b2 in hunk:
+            if tag == _EQUAL:
+                body.extend(f" {line}" for line in old_lines[a1:a2])
+                continue
+            body.extend(f"-{line}" for line in old_lines[a1:a2])
+            body.extend(f"+{line}" for line in new_lines[b1:b2])
+            removed += a2 - a1
+            added += b2 - b1
+    header = [f"--- a/{old_name}\n", f"+++ b/{new_name}\n"] if body else []
+    return TextDiff(unified="".join(header + body), added=added, removed=removed)
 
 
 def _escape(token: str) -> str:
