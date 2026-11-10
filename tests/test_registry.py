@@ -33,7 +33,7 @@ from conveyor.registry import (
 )
 from conveyor.registry import snapshot as snapshot_module
 from conveyor.registry.canonical import CanonicalFormError, canonical_json, load_canonical_json
-from conveyor.registry.diff import json_changes, text_diff
+from conveyor.registry.diff import TextDiff, json_changes, text_diff
 
 REGISTRY = Path(__file__).parent / "fixtures" / "registry"
 
@@ -920,6 +920,71 @@ def test_text_diff_marks_a_missing_final_newline() -> None:
 \\ No newline at end of file
 """)
     assert (diff.added, diff.removed) == (1, 1)
+
+
+def test_text_diff_of_one_line_in_a_repetitive_file_is_one_line() -> None:
+    # difflib's "autojunk" stops matching a line that fills more than 1% of 200 lines or more,
+    # which used to report this single edit as +150 -150.
+    old = "| x | y |\n" * 300
+    lines = old.splitlines(keepends=True)
+    lines[150] = "| x | z |\n"
+
+    diff = text_diff(old, "".join(lines), old_name="table.md", new_name="table.md")
+
+    assert (diff.added, diff.removed) == (1, 1)
+    assert diff.unified == snapshot("""\
+--- a/table.md
++++ b/table.md
+@@ -148,7 +148,7 @@
+ | x | y |
+ | x | y |
+ | x | y |
+-| x | y |
++| x | z |
+ | x | y |
+ | x | y |
+ | x | y |
+""")
+
+
+def test_text_diff_of_a_large_file_with_scattered_edits_is_exact_and_quick() -> None:
+    # Matching all of this with difflib took about three minutes; the test timeout is 60 s.
+    old = [f"case {number}\n" for number in range(100_000)]
+    new = [
+        f"{line.rstrip()} changed\n" if index % 10 == 0 else line for index, line in enumerate(old)
+    ]
+
+    diff = text_diff("".join(old), "".join(new), old_name="cases", new_name="cases")
+
+    assert (diff.added, diff.removed) == (10_000, 10_000)
+
+
+def test_text_diff_replaces_a_long_stretch_it_cannot_pin_down() -> None:
+    # No line occurs exactly once in both texts, so there is nothing to split the stretch at.
+    old = ["start\n", *["a\n", "b\n"] * 1500, "end\n"]
+    new = ["begin\n", *["b\n", "a\n"] * 1500, "finish\n"]
+
+    diff = text_diff("".join(old), "".join(new), old_name="x", new_name="x")
+
+    assert (diff.added, diff.removed) == (3002, 3002)
+    assert diff.unified.splitlines()[2] == "@@ -1,3002 +1,3002 @@"
+
+
+def test_text_diff_of_a_long_text_with_a_moved_half_keeps_the_other_half() -> None:
+    # Lines that changed order cannot all pin the texts together; the longest run that kept
+    # its order does, and the rest is removed in one place and added in the other.
+    old = [f"line {number}\n" for number in range(3000)]
+    new = [*old[1500:], *old[:1500]]
+
+    diff = text_diff("".join(old), "".join(new), old_name="x", new_name="x")
+
+    assert (diff.added, diff.removed) == (1500, 1500)
+
+
+def test_text_diff_of_equal_texts_is_empty() -> None:
+    assert text_diff("a\nb\n", "a\nb\n", old_name="x", new_name="x") == TextDiff(
+        unified="", added=0, removed=0
+    )
 
 
 def test_json_changes_escape_pointers_and_compare_types() -> None:
