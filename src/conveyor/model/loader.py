@@ -296,9 +296,19 @@ def parse_yaml(text: str, file: Path) -> Document:
 
     Raises:
         ConfigError: If the YAML is malformed, empty, has duplicate keys, uses explicit
-            tags, merge keys or recursive aliases, or expands to more than `MAX_VALUES`
-            values.
+            tags, merge keys or recursive aliases, expands to more than `MAX_VALUES`
+            values, or is nested too deeply to read.
     """
+    try:
+        return _parse(text, file)
+    except RecursionError:
+        # ruamel's composer and the converter below both recurse once per nesting level, so a
+        # hostile or mistaken file with hundreds of levels exhausts the interpreter's stack.
+        message = "document is nested too deeply to read"
+        raise ConfigError([Issue(file=file, line=1, column=1, message=message)]) from None
+
+
+def _parse(text: str, file: Path) -> Document:
     yaml = _safe_yaml()
     try:
         root = yaml.compose(text)
