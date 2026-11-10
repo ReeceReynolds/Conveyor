@@ -1,10 +1,12 @@
 """Property tests: content IDs are stable, snapshots round-trip, and diffs see every change."""
 
+import re
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from random import Random
 
+import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
 from pydantic import JsonValue
@@ -23,7 +25,9 @@ from conveyor.registry import (
     snapshot_from_bytes,
     summarise,
 )
+from conveyor.registry import diff as diff_module
 from conveyor.registry.canonical import MAX_SAFE_INTEGER
+from conveyor.registry.diff import text_diff
 
 _words = st.text("abxyz019", min_size=1, max_size=4)
 _slugs = st.lists(_words, min_size=1, max_size=2).map("-".join)
@@ -258,3 +262,45 @@ def test_build_snapshot_ignores_file_creation_order(files: dict[str, str], rando
             ids.append(content_id(build_snapshot(folder, agent, schemas)))
 
     assert ids[0] == ids[1]
+
+
+_HUNK = re.compile(r"@@ -(\d+)(?:,(\d+))? \+")
+_lines = st.lists(st.sampled_from(["a", "b", "c", "d", "e", "f", ""]), max_size=30)
+
+
+def _patched(old: list[str], unified: str) -> list[str]:
+    """Apply a unified diff of newline-terminated lines to `old`, checking it as `patch` would."""
+    result: list[str] = []
+    position = 0
+    for line in unified.splitlines(keepends=True)[2:]:
+        if (header := _HUNK.match(line)) is not None:
+            start = int(header[1]) - (0 if header[2] == "0" else 1)
+            result += old[position:start]
+            position = start
+        elif line.startswith("+"):
+            result.append(line[1:])
+        else:
+            # A context or removed line must be the line the old text has at this point.
+            assert old[position] == line[1:]
+            result += [old[position]] if line.startswith(" ") else []
+            position += 1
+    return result + old[position:]
+
+
+@given(old=_lines, new=_lines, limit=st.sampled_from([0, 4, 2_000]))
+def test_a_text_diff_turns_the_old_text_into_the_new(
+    old: list[str], new: list[str], limit: int
+) -> None:
+    old_lines, new_lines = [f"{line}\n" for line in old], [f"{line}\n" for line in new]
+
+    # A low limit sends short texts down the paths that long ones take: splitting at lines
+    # that occur once in both, and replacing a stretch with none.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(diff_module, "MAX_MATCHED_LINES", limit)
+        diff = text_diff("".join(old_lines), "".join(new_lines), old_name="a", new_name="b")
+
+    assert _patched(old_lines, diff.unified) == new_lines
+    assert (diff.unified == "") == (old == new)
+    changed = [line for line in diff.unified.splitlines()[2:] if line[:1] in {"+", "-"}]
+    assert diff.added == sum(line.startswith("+") for line in changed)
+    assert diff.removed == sum(line.startswith("-") for line in changed)
