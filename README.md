@@ -103,6 +103,12 @@ version, an unreadable registry) and `2` for a usage error. `diff` exits `0` whe
 there are differences, unless `--exit-code` is given: then, as with `git diff --exit-code`, `1`
 means the versions differ and problems exit with `2`.
 
+## External Recognition
+
+[![XERJ Corpus Hub contributor badge](https://hub.xerj.org/contributors/ReeceReynolds/badge.svg)](https://hub.xerj.org/contributors/ReeceReynolds)
+
+Conveyor is listed in the [XERJ Corpus Hub](https://hub.xerj.org/corpus/reecereynolds--conveyor) under [Reece Reynolds](https://hub.xerj.org/contributors/ReeceReynolds).
+
 ## Development
 
 Requirements: [uv](https://docs.astral.sh/uv/) ≥ 0.13, Python 3.14, Node 24 and
