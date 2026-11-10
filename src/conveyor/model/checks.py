@@ -18,7 +18,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
-from conveyor.contracts import ContractResolutionError, JsonSchema, resolve_contract_schemas
+from conveyor.contracts import ContractResolutionError, ContractSchemas, JsonSchema
 from conveyor.model.agent import Agent
 from conveyor.model.errors import ConfigError, Issue
 from conveyor.model.factory import agent_references, raw_agent_references
@@ -59,27 +59,31 @@ class AgentInspection:
     schemas: Mapping[str, JsonSchema] = field(default_factory=dict[str, JsonSchema])
 
 
-def check_agent_folder(folder: Path) -> list[Issue]:
+def check_agent_folder(folder: Path, contracts: ContractSchemas | None = None) -> list[Issue]:
     """Validate an agent folder: its `agent.yaml` and the files it points to.
 
     Args:
         folder: The agent's folder.
+        contracts: Contract schemas already resolved in this run. Callers checking many
+            agents pass the same one each time, so each contract module is imported once.
 
     Returns:
         Every problem found; empty if the agent is valid.
     """
-    return list(inspect_agent_folder(folder).issues)
+    return list(inspect_agent_folder(folder, contracts).issues)
 
 
-def inspect_agent_folder(folder: Path) -> AgentInspection:
+def inspect_agent_folder(folder: Path, contracts: ContractSchemas | None = None) -> AgentInspection:
     """Validate an agent folder and keep what validating it read.
 
     Args:
         folder: The agent's folder.
+        contracts: Contract schemas already resolved in this run; see `check_agent_folder`.
 
     Returns:
         Every problem found, the parsed agent and the schemas of its resolved contracts.
     """
+    contracts = contracts or ContractSchemas()
     file = folder / AGENT_FILE
     if not file.is_file():
         return AgentInspection(
@@ -95,7 +99,7 @@ def inspect_agent_folder(folder: Path) -> AgentInspection:
         # Still resolve whichever contract references are well-formed, so every problem is
         # reported in one pass.
         contract_issues, schemas = _resolve_contracts(
-            folder, document, _raw_contracts(document.data)
+            folder, document, _raw_contracts(document.data), contracts
         )
         return AgentInspection((*error.issues, *contract_issues), schemas=schemas)
 
@@ -110,34 +114,32 @@ def inspect_agent_folder(folder: Path) -> AgentInspection:
     if not (folder / agent.quality_gate.suite).exists():
         message = f"eval suite {str(agent.quality_gate.suite)!r} not found"
         issues.append(document.issue(("quality_gate", "suite"), message))
-    contracts = {"input": agent.brief.input, "output": agent.brief.output}
-    contract_issues, schemas = _resolve_contracts(folder, document, contracts)
+    refs = {"input": agent.brief.input, "output": agent.brief.output}
+    contract_issues, schemas = _resolve_contracts(folder, document, refs, contracts)
     issues.extend(contract_issues)
     return AgentInspection(tuple(issues), agent, schemas)
 
 
 def _resolve_contracts(
-    folder: Path, document: Document, refs: Mapping[str, str]
+    folder: Path, document: Document, refs: Mapping[str, str], contracts: ContractSchemas
 ) -> tuple[list[Issue], dict[str, JsonSchema]]:
     """Resolve contract references, keyed by Brief field, when the agent is in a project.
 
-    Each distinct reference is resolved once, so its module is imported once; a failure is
-    reported against every field that names it.
+    The references are resolved together, so a contract module they share is imported once;
+    a failure is reported against every field that names the failing reference.
     """
     root = agent_project_root(folder)
     if root is None:
         return [], {}
     issues: list[Issue] = []
     schemas: dict[str, JsonSchema] = {}
-    failures: dict[str, str] = {}
+    resolved = contracts.resolve(root, refs.values())
     for brief_field, ref in refs.items():
-        if ref not in schemas and ref not in failures:
-            try:
-                schemas.update(resolve_contract_schemas(root, [ref]))
-            except ContractResolutionError as error:
-                failures[ref] = str(error)
-        if ref in failures:
-            issues.append(document.issue(("brief", brief_field), failures[ref]))
+        result = resolved[ref]
+        if isinstance(result, ContractResolutionError):
+            issues.append(document.issue(("brief", brief_field), str(result)))
+        else:
+            schemas[ref] = result
     return issues, schemas
 
 
