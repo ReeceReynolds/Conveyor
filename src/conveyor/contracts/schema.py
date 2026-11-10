@@ -6,13 +6,14 @@ given model; key order follows field order, which is kept because it is meaningf
 reading the schema and to models generating structured output from it.
 """
 
+import copy
 import math
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from pydantic import BaseModel, JsonValue, TypeAdapter
 
-from conveyor.contracts.resolver import ContractResolutionError, describe, resolve_contract
+from conveyor.contracts.resolver import ContractResolutionError, describe, resolve_each
 
 type JsonSchema = dict[str, JsonValue]
 """A JSON Schema document as plain JSON data."""
@@ -112,7 +113,8 @@ def resolve_contract_schemas(project_root: Path, refs: Iterable[str]) -> dict[st
 
     Args:
         project_root: The folder holding the contract modules.
-        refs: Contract references. A reference given more than once is resolved once.
+        refs: Contract references. A reference given more than once is resolved once, and
+            each contract module is imported once for all of them.
 
     Returns:
         Each distinct reference mapped to its schema, in first-seen order.
@@ -122,16 +124,69 @@ def resolve_contract_schemas(project_root: Path, refs: Iterable[str]) -> dict[st
             JSON Schema.
     """
     schemas: dict[str, JsonSchema] = {}
-    for ref in refs:
-        if ref not in schemas:
-            schemas[ref] = _schema_for(project_root, ref)
+    for ref, result in _schemas_or_errors(project_root, refs).items():
+        if isinstance(result, ContractResolutionError):
+            raise result
+        schemas[ref] = result
     return schemas
 
 
-def _schema_for(project_root: Path, ref: str) -> JsonSchema:
-    model = resolve_contract(project_root, ref)
-    # Report a schema failure against the reference as written, not where the model lives.
-    try:
-        return contract_schema(model)
-    except ContractResolutionError as error:
-        raise ContractResolutionError(ref, error.reason) from error.__cause__
+def _schemas_or_errors(
+    project_root: Path, refs: Iterable[str]
+) -> dict[str, JsonSchema | ContractResolutionError]:
+    # The schema is generated while the project's modules are still importable.
+    results = resolve_each(project_root, refs, contract_schema)
+    return {ref: _as_written(ref, result) for ref, result in results.items()}
+
+
+def _as_written(
+    ref: str, result: JsonSchema | ContractResolutionError
+) -> JsonSchema | ContractResolutionError:
+    """Report a schema failure against the reference as written, not where the model lives."""
+    if not isinstance(result, ContractResolutionError) or result.ref == ref:
+        return result
+    error = ContractResolutionError(ref, result.reason)
+    error.__cause__ = result.__cause__
+    return error
+
+
+class ContractSchemas:
+    """Contract schemas resolved during one run, such as one `conveyor validate`.
+
+    Every agent of a project usually names models from the same few contract modules.
+    Resolving through one of these imports each module once for all the references first
+    asked for together, and answers a reference seen before without importing anything.
+
+    Results are kept for as long as the object lives, so make a new one for each run: an
+    edit to a contract module is not seen by an object that has already resolved it.
+    """
+
+    def __init__(self) -> None:
+        """Create an empty set of resolved schemas."""
+        self._resolved: dict[tuple[Path, str], JsonSchema | ContractResolutionError] = {}
+
+    def resolve(
+        self, project_root: Path, refs: Iterable[str]
+    ) -> dict[str, JsonSchema | ContractResolutionError]:
+        """Resolve contract references, reusing what this object has resolved before.
+
+        Args:
+            project_root: The folder holding the contract modules.
+            refs: Contract references.
+
+        Returns:
+            Each distinct reference, in first-seen order, mapped to a fresh copy of its
+            schema, or to the error that stopped it resolving.
+        """
+        root = project_root.resolve()
+        order = list(dict.fromkeys(refs))
+        missing = [ref for ref in order if (root, ref) not in self._resolved]
+        for ref, result in _schemas_or_errors(root, missing).items():
+            self._resolved[root, ref] = result
+        results: dict[str, JsonSchema | ContractResolutionError] = {}
+        for ref in order:
+            result = self._resolved[root, ref]
+            # Callers own what they get: a schema they change must not change the next one.
+            is_error = isinstance(result, ContractResolutionError)
+            results[ref] = result if is_error else copy.deepcopy(result)
+        return results

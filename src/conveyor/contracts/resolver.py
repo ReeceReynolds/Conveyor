@@ -20,7 +20,7 @@ contract package.
 import importlib
 import sys
 import threading
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from importlib.machinery import ModuleSpec, all_suffixes
 from pathlib import Path
@@ -88,6 +88,53 @@ def resolve_contract(project_root: Path, ref: str) -> type[BaseModel]:
             module is not in the project or fails to import, or the attribute is missing or is
             not a Pydantic model class.
     """
+    root = project_root.resolve()
+    top = _top_module(root, ref)
+    with _LOCK, _isolated_imports(root, top):
+        return _load(root, ref)
+
+
+def resolve_each[T](
+    project_root: Path, refs: Iterable[str], use: Callable[[type[BaseModel]], T]
+) -> dict[str, T | ContractResolutionError]:
+    """Resolve several contract references, importing each contract module once.
+
+    References that share a top-level module are resolved inside one isolated import, so the
+    project's code runs once however many of its models are named. `use` is called with each
+    model while the project's modules can still be imported, which a model may need to
+    describe itself (a schema hook that imports a sibling module, say).
+
+    Args:
+        project_root: The folder holding `agents/`, `factories/` and the contract modules.
+        refs: Dotted references. A reference given more than once is resolved once.
+        use: Turns each resolved model into the result wanted, such as its JSON Schema. It
+            may raise `ContractResolutionError`.
+
+    Returns:
+        Each distinct reference, in first-seen order, mapped to what `use` returned for it, or
+        to the error that stopped it resolving. Nothing is raised for a reference.
+    """
+    root = project_root.resolve()
+    order = list(dict.fromkeys(refs))
+    results: dict[str, T | ContractResolutionError] = {}
+    by_module: dict[str, list[str]] = {}
+    for ref in order:
+        try:
+            by_module.setdefault(_top_module(root, ref), []).append(ref)
+        except ContractResolutionError as error:
+            results[ref] = error
+    for top, group in by_module.items():
+        with _LOCK, _isolated_imports(root, top):
+            for ref in group:
+                try:
+                    results[ref] = use(_load(root, ref))
+                except ContractResolutionError as error:
+                    results[ref] = error
+    return {ref: results[ref] for ref in order}
+
+
+def _top_module(root: Path, ref: str) -> str:
+    """Check a reference before importing anything and return its top-level module name."""
     parts = ref.split(".")
     if len(parts) == 1 or not all(part.isidentifier() for part in parts):
         raise ContractResolutionError(ref, "must be a dotted reference like 'contracts.TaskList'")
@@ -95,24 +142,27 @@ def resolve_contract(project_root: Path, ref: str) -> type[BaseModel]:
     if top in RESERVED_MODULES:
         reason = f"module name {top!r} is reserved for the standard library or Conveyor"
         raise ContractResolutionError(ref, reason)
-    root = project_root.resolve()
-    module_name, _, attribute = ref.rpartition(".")
     if not _in_root(root, top):
         reason = f"no module {top!r} in the project (expected {top}.py or a {top}/ package)"
         raise ContractResolutionError(ref, reason)
-    with _LOCK, _isolated_imports(root, top):
-        module = _import(ref, module_name)
-        if not _from_root(module, root):
-            reason = f"module {module_name!r} was imported from outside the project"
-            raise ContractResolutionError(ref, reason)
-        model = _model(ref, module, attribute)
-        # Forward references resolve against the module, which is only importable in here.
-        if not model.__pydantic_complete__:
-            try:
-                model.model_rebuild(raise_errors=True)
-            except Exception as error:
-                reason = f"{attribute!r} is not fully defined: {first_line(error)}"
-                raise ContractResolutionError(ref, reason) from error
+    return top
+
+
+def _load(root: Path, ref: str) -> type[BaseModel]:
+    """Import and build the model `ref` names. Call inside `_isolated_imports`."""
+    module_name, _, attribute = ref.rpartition(".")
+    module = _import(ref, module_name)
+    if not _from_root(module, root):
+        reason = f"module {module_name!r} was imported from outside the project"
+        raise ContractResolutionError(ref, reason)
+    model = _model(ref, module, attribute)
+    # Forward references resolve against the module, which is only importable in here.
+    if not model.__pydantic_complete__:
+        try:
+            model.model_rebuild(raise_errors=True)
+        except Exception as error:
+            reason = f"{attribute!r} is not fully defined: {first_line(error)}"
+            raise ContractResolutionError(ref, reason) from error
     return model
 
 
