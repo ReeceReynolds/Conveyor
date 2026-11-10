@@ -8,6 +8,9 @@ version), `2` usage errors (a malformed ref, a folder that is not a project).
 - `conveyor validate`: check agents and factories against the factory model.
 - `conveyor agent list | publish | history | show | diff`: list a project's agents, publish
   agent versions, list them, show one and compare any two.
+
+The registry and storage packages are imported by the `agent` commands when they run, not
+here, so `--help`, `--version` and `validate` start without loading SQLAlchemy and Alembic.
 """
 
 import getpass
@@ -16,38 +19,17 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Final, NoReturn
+from typing import TYPE_CHECKING, Annotated, Final, NoReturn
 
 import typer
 
 from conveyor import __version__
 from conveyor.model import NothingToValidateError, dump_yaml, validate_path
 from conveyor.model.checks import AGENTS_DIR
-from conveyor.registry import (
-    AgentSnapshot,
-    PublishError,
-    RefProblem,
-    Side,
-    SnapshotError,
-    VersionRefError,
-    WorkingCopy,
-    check_agent_name,
-    diff_versions,
-    is_one_line,
-    list_agents,
-    load_snapshot,
-    previous_version,
-    publish,
-    resolve,
-    short_id,
-)
-from conveyor.storage import (
-    STATE_DIR,
-    AgentVersionRecord,
-    RegistryNotFoundError,
-    StorageError,
-    Store,
-)
+
+if TYPE_CHECKING:
+    from conveyor.registry import AgentSnapshot, Side
+    from conveyor.storage import AgentVersionRecord
 
 app = typer.Typer(
     name="conveyor",
@@ -57,6 +39,21 @@ app = typer.Typer(
     rich_markup_mode="markdown",
     pretty_exceptions_enable=False,
 )
+
+
+def _registry():
+    """Import the registry and storage packages when an `agent` command first needs them.
+
+    They bring in SQLAlchemy and Alembic, which take longer to import than the rest of the
+    program put together, so `--help`, `--version` and `validate` must not pay for them.
+
+    Returns:
+        The `conveyor.registry` and `conveyor.storage` modules.
+    """
+    # Deferred on purpose (see above); a test fails if `validate` imports SQLAlchemy.
+    from conveyor import registry, storage  # noqa: PLC0415
+
+    return registry, storage
 
 
 def _count(count: int, singular: str, plural: str) -> str:
@@ -150,7 +147,7 @@ class Clock:
 
 def _agent_name(name: str) -> str:
     try:
-        return check_agent_name(name)
+        return _registry()[0].check_agent_name(name)
     except ValueError as error:
         raise typer.BadParameter(str(error)) from None
 
@@ -163,7 +160,7 @@ def _required_text(value: str | None) -> str | None:
 
 
 def _one_line(value: str | None) -> str | None:
-    if value is not None and not is_one_line(_required_text(value) or ""):
+    if value is not None and not _registry()[0].is_one_line(_required_text(value) or ""):
         message = "must be one line of text, with no line breaks or control characters"
         raise typer.BadParameter(message)
     return value
@@ -198,7 +195,7 @@ def _default_author() -> str:
         user = getpass.getuser()
     except OSError:
         raise typer.BadParameter(message, param_hint="'--author'") from None
-    if not user.strip() or not is_one_line(user):
+    if not user.strip() or not _registry()[0].is_one_line(user):
         raise typer.BadParameter(message, param_hint="'--author'")
     return user
 
@@ -234,31 +231,37 @@ def _reporting(project: Path, outcome: str = "nothing done", code: int = FAILED)
     Yields:
         Nothing; the block runs inside.
     """
+    registry, storage = _registry()
     try:
         yield
-    except PublishError as error:
+    except registry.PublishError as error:
         # Problems go to stdout, as `conveyor validate` prints them, so tools parse both alike.
         for issue in error.issues:
             typer.echo(issue.render())
         problems = _count(len(error.issues), "problem", "problems")
         typer.echo(f"Found {problems} in {error.name}; {outcome}.")
         raise typer.Exit(code=code) from None
-    except VersionRefError as error:
-        if error.problem is RefProblem.MALFORMED:
+    except registry.VersionRefError as error:
+        if error.problem is registry.RefProblem.MALFORMED:
             raise typer.BadParameter(str(error)) from None
         _fail(str(error), code)
-    except RegistryNotFoundError:
+    except storage.RegistryNotFoundError:
         _fail(_nothing_published(project), code)
-    except (StorageError, SnapshotError) as error:
+    except (storage.StorageError, registry.SnapshotError) as error:
         _fail(f"The registry in {project} cannot be read: {error}", code)
 
 
 def _nothing_published(project: Path) -> str:
-    return f"nothing has been published yet: there is no registry in {project / STATE_DIR}/"
+    state = project / _registry()[1].STATE_DIR
+    return f"nothing has been published yet: there is no registry in {state}/"
+
+
+def _short_id(content_id: str) -> str:
+    return _registry()[0].short_id(content_id)
 
 
 def _version(record: AgentVersionRecord) -> str:
-    return f"{record.agent} v{record.sequence} ({short_id(record.content_id)})"
+    return f"{record.agent} v{record.sequence} ({_short_id(record.content_id)})"
 
 
 def _date(record: AgentVersionRecord, layout: str = "%Y-%m-%d %H:%M") -> str:
@@ -312,7 +315,7 @@ def list_command(project: ProjectOption = Path()) -> None:
     """
     project = _project(project)
     with _reporting(project):
-        agents = list_agents(project)
+        agents = _registry()[0].list_agents(project)
     if not agents:
         typer.echo(f"no agents in {project / AGENTS_DIR}/")
         return
@@ -328,7 +331,7 @@ def list_command(project: ProjectOption = Path()) -> None:
             columns = (
                 agent.name.ljust(name_width),
                 f"v{record.sequence}".ljust(sequence_width),
-                short_id(record.content_id),
+                _short_id(record.content_id),
                 _date(record),
                 record.author.ljust(author_width),
                 "" if agent.has_folder else NO_FOLDER,
@@ -362,12 +365,12 @@ def publish_command(
     clock = ctx.find_object(Clock) or Clock()
     who = author if author is not None else _default_author()
     with _reporting(project, "nothing published"):
-        result = publish(project, name, author=who, message=message, now=clock.now())
+        result = _registry()[0].publish(project, name, author=who, message=message, now=clock.now())
 
     record = result.record
     if not result.created:
         typer.echo(
-            f"{name} is unchanged since v{record.sequence} ({short_id(record.content_id)}); "
+            f"{name} is unchanged since v{record.sequence} ({_short_id(record.content_id)}); "
             "nothing published"
         )
     elif result.diff is None:
@@ -386,7 +389,7 @@ def history_command(name: NameArgument, project: ProjectOption = Path()) -> None
     first line of each message.
     """
     project = _project(project)
-    with _reporting(project), Store.open(project, read_only=True) as store:
+    with _reporting(project), _registry()[1].Store.open(project, read_only=True) as store:
         records = store.registry.history(name)
     if not records:
         _fail(f"agent {name!r} has no published versions")
@@ -396,7 +399,7 @@ def history_command(name: NameArgument, project: ProjectOption = Path()) -> None
         summary = (record.message.splitlines() or [""])[0]
         columns = (
             f"v{record.sequence}".ljust(sequence_width),
-            short_id(record.content_id),
+            _short_id(record.content_id),
             _date(record),
             record.author.ljust(author_width),
             summary,
@@ -420,9 +423,10 @@ def show_command(
     name, at, ref = target.partition("@")
     name = _agent_name(name)
     project = _project(project)
-    with _reporting(project), Store.open(project, read_only=True) as store:
-        record = resolve(store, name, ref if at else None)
-        snapshot = load_snapshot(store, record)
+    registry, storage = _registry()
+    with _reporting(project), storage.Store.open(project, read_only=True) as store:
+        record = registry.resolve(store, name, ref if at else None)
+        snapshot = registry.load_snapshot(store, record)
     for line in _show_lines(record, snapshot):
         typer.echo(line)
 
@@ -479,27 +483,29 @@ def diff_command(  # noqa: PLR0913
         raise typer.BadParameter(message, param_hint="TO")
     project = _project(project)
     failed = FAILED_WITH_EXIT_CODE if exit_code else FAILED
+    registry, storage = _registry()
+    resolve = registry.resolve
     with (
         _reporting(project, "cannot compare the working copy", failed),
-        Store.open(project, read_only=True) as store,
+        storage.Store.open(project, read_only=True) as store,
     ):
         old: Side
         new: Side
         if working:
-            old, new = resolve(store, name, old_ref), WorkingCopy(project)
+            old, new = resolve(store, name, old_ref), registry.WorkingCopy(project)
         elif old_ref is None:
-            new = resolve(store, name, None)
-            if (previous := previous_version(store, new)) is None:
+            latest = resolve(store, name, None)
+            if (previous := registry.previous_version(store, latest)) is None:
                 _fail(
-                    f"{name} has only one version, v{new.sequence} "
-                    f"({short_id(new.content_id)}); use --working to compare it with "
+                    f"{name} has only one version, v{latest.sequence} "
+                    f"({_short_id(latest.content_id)}); use --working to compare it with "
                     f"agents/{name}/ on disk",
                     failed,
                 )
-            old = previous
+            old, new = previous, latest
         else:
             old, new = resolve(store, name, old_ref), resolve(store, name, new_ref)
-        result = diff_versions(store, name, old, new)
+        result = registry.diff_versions(store, name, old, new)
 
     if summary:
         typer.echo(result.summary())

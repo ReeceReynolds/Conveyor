@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import tempfile
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -35,6 +36,19 @@ _SYNCS_DIRECTORIES = os.name == "posix"
 
 _SYNC_UNSUPPORTED = frozenset({errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP})
 """What `fsync` on a directory fails with on file systems that do not support it."""
+
+_READS_REFUSED_DURING_REPLACE = os.name == "nt"
+"""Whether reading a file can fail while another process is replacing it (Windows does).
+
+There, a writer's `os.replace` onto an object briefly leaves the name unopenable, and opening
+it fails with a permission error even though nothing is wrong with its permissions.
+"""
+
+_REPLACE_WAIT_SECONDS = 2.0
+"""How long to keep retrying a read refused because a concurrent replace is in progress."""
+
+_REPLACE_RETRY_SECONDS = 0.01
+"""Pause between those retries."""
 
 
 def digest_of(data: bytes) -> str:
@@ -97,7 +111,29 @@ def file_errors(path: Path) -> Generator[None]:
 
 def _intact(path: Path, digest: str) -> bool:
     """Whether `path` is a file whose content hashes to `digest`."""
-    return path.is_file() and digest_of(path.read_bytes()) == digest
+    return path.is_file() and digest_of(_read_settled(path)) == digest
+
+
+def _read_settled(path: Path) -> bytes:
+    """Read a stored object, waiting out another writer's replace of it where that refuses reads.
+
+    A writer can move its copy of an object into place while someone else reads the object: a
+    second writer of the same content checking the existing file, or a reader of a version
+    that was just recorded. On Windows the read then fails with a permission error for as long
+    as the move takes, so it is retried for a short while there. A refusal that outlasts the
+    wait, a folder where the object goes, or any refusal elsewhere, is a real one and is raised.
+    """
+    deadline = time.monotonic() + _REPLACE_WAIT_SECONDS
+    while True:
+        try:
+            return path.read_bytes()
+        except PermissionError:
+            if not _READS_REFUSED_DURING_REPLACE or time.monotonic() >= deadline:
+                raise
+            if path.is_dir():
+                # Windows refuses to open a folder as a file the same way; waiting cannot help.
+                raise
+            time.sleep(_REPLACE_RETRY_SECONDS)
 
 
 def sync_directory(directory: Path) -> None:
@@ -219,7 +255,7 @@ class ObjectStore:
         path = self._path(digest)
         with file_errors(path):
             try:
-                data = path.read_bytes()
+                data = _read_settled(path)
             except FileNotFoundError, NotADirectoryError:
                 # POSIX and Windows report a file where the fan-out folder goes differently
                 # (not a directory, or not found); report both as the same unusable state.

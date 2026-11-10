@@ -15,9 +15,11 @@ from pydantic_core import SchemaError
 
 from conveyor.contracts import (
     ContractResolutionError,
+    ContractSchemas,
     contract_schema,
     resolve_contract,
     resolve_contract_schemas,
+    resolve_each,
 )
 from conveyor.contracts.resolver import RESERVED_MODULES, describe, first_line
 from conveyor.contracts.schema import DIALECT, inexact_value
@@ -29,6 +31,27 @@ PROJECT = FIXTURES / "contracts"
 ALPHA = FIXTURES / "twins" / "alpha"
 BETA = FIXTURES / "twins" / "beta"
 
+_PROJECT_MODULES = {"contracts", "contract_helpers", "shared_fields", "here", "lazy_helper", "more"}
+
+# A contract module that counts how often it is imported, in `imports.txt` beside it.
+_COUNTING = """\
+from pathlib import Path
+from pydantic import BaseModel
+
+count = Path(__file__).with_name("imports.txt")
+count.write_text(str(int(count.read_text()) + 1) if count.exists() else "1")
+
+class A(BaseModel):
+    one: int
+
+class B(BaseModel):
+    two: int
+"""
+
+
+def _imports(root: Path) -> int:
+    return int((root / "imports.txt").read_text())
+
 
 @pytest.fixture(autouse=True)
 def import_state_is_restored() -> Iterator[None]:
@@ -38,9 +61,7 @@ def import_state_is_restored() -> Iterator[None]:
     yield
     assert sys.path == path
     leaked = {
-        name
-        for name in set(sys.modules) - modules
-        if name.partition(".")[0] in {"contracts", "contract_helpers", "shared_fields", "here"}
+        name for name in set(sys.modules) - modules if name.partition(".")[0] in _PROJECT_MODULES
     }
     assert not leaked
 
@@ -535,3 +556,107 @@ def test_example_repo_paths_stay_inside_the_repository(
     message = _example_error(example, "FileChange", {**CHANGE, "path": path})
 
     assert (message is None) == valid
+
+
+def test_references_into_one_module_import_it_once(tmp_path: Path) -> None:
+    (tmp_path / "contracts.py").write_text(_COUNTING)
+
+    schemas = resolve_contract_schemas(tmp_path, ["contracts.A", "contracts.B", "contracts.A"])
+
+    assert list(schemas) == ["contracts.A", "contracts.B"]
+    assert _imports(tmp_path) == 1
+
+
+def test_resolve_each_reports_every_reference_on_its_own(tmp_path: Path) -> None:
+    (tmp_path / "contracts.py").write_text(_COUNTING)
+    (tmp_path / "more.py").write_text("from pydantic import BaseModel\nclass C(BaseModel): ...\n")
+    refs = ["contracts.Missing", "nope", "contracts.B", "more.C", "gone.D", "contracts.A"]
+
+    results = resolve_each(tmp_path, refs, lambda model: model.__name__)
+
+    shown = {
+        ref: result.reason if isinstance(result, ContractResolutionError) else result
+        for ref, result in results.items()
+    }
+    assert shown == snapshot(
+        {
+            "contracts.Missing": "module 'contracts' has no attribute 'Missing'",
+            "nope": "must be a dotted reference like 'contracts.TaskList'",
+            "contracts.B": "B",
+            "more.C": "C",
+            "gone.D": "no module 'gone' in the project (expected gone.py or a gone/ package)",
+            "contracts.A": "A",
+        }
+    )
+    assert _imports(tmp_path) == 1
+
+
+def test_a_schema_hook_can_import_from_the_project(tmp_path: Path) -> None:
+    # The schema is generated while the project's modules can still be imported.
+    (tmp_path / "lazy_helper.py").write_text("NOTE = 'from the project'\n")
+    (tmp_path / "contracts.py").write_text(
+        "from pydantic import BaseModel, ConfigDict\n"
+        "def note(schema):\n"
+        "    import lazy_helper\n"
+        "    schema['x-note'] = lazy_helper.NOTE\n"
+        "class A(BaseModel):\n"
+        "    model_config = ConfigDict(json_schema_extra=note)\n"
+    )
+
+    schemas = resolve_contract_schemas(tmp_path, ["contracts.A"])
+
+    assert schemas["contracts.A"]["x-note"] == "from the project"
+
+
+def test_contract_schemas_resolve_each_reference_once_per_run(tmp_path: Path) -> None:
+    (tmp_path / "contracts.py").write_text(_COUNTING)
+    run = ContractSchemas()
+
+    first = run.resolve(tmp_path, ["contracts.A", "contracts.Missing"])
+    again = run.resolve(tmp_path, ["contracts.Missing", "contracts.A"])
+
+    assert _imports(tmp_path) == 1
+    assert list(again) == ["contracts.Missing", "contracts.A"]
+    assert again["contracts.A"] == first["contracts.A"]
+    assert again["contracts.A"] is not first["contracts.A"]
+    missing = again["contracts.Missing"]
+    assert isinstance(missing, ContractResolutionError)
+    assert missing.reason == snapshot("module 'contracts' has no attribute 'Missing'")
+
+    # A reference not seen before imports the module again, for that reference alone.
+    run.resolve(tmp_path, ["contracts.B", "contracts.A"])
+    assert _imports(tmp_path) == 2
+
+
+def test_a_new_run_sees_edits_to_contract_modules(tmp_path: Path) -> None:
+    contracts = tmp_path / "contracts.py"
+    contracts.write_text("from pydantic import BaseModel\nclass A(BaseModel):\n    one: int\n")
+    run = ContractSchemas()
+    before = run.resolve(tmp_path, ["contracts.A"])["contracts.A"]
+    contracts.write_text("from pydantic import BaseModel\nclass A(BaseModel):\n    two: int\n")
+
+    same_run = run.resolve(tmp_path, ["contracts.A"])["contracts.A"]
+    new_run = ContractSchemas().resolve(tmp_path, ["contracts.A"])["contracts.A"]
+
+    assert same_run == before
+    assert isinstance(new_run, dict)
+    assert new_run["required"] == ["two"]
+
+
+def test_a_schema_failure_names_the_reference_not_where_the_model_lives(tmp_path: Path) -> None:
+    package = tmp_path / "contracts"
+    package.mkdir()
+    (package / "__init__.py").write_text("from contracts.inner import Hook\n")
+    (package / "inner.py").write_text(
+        "from collections.abc import Callable\n"
+        "from pydantic import BaseModel\n"
+        "class Hook(BaseModel):\n"
+        "    run: Callable[[], None]\n"
+    )
+
+    with pytest.raises(ContractResolutionError) as caught:
+        resolve_contract_schemas(tmp_path, ["contracts.Hook"])
+
+    assert caught.value.ref == "contracts.Hook"
+    assert caught.value.reason.startswith("no JSON Schema can be generated for it")
+    assert caught.value.__cause__ is not None
