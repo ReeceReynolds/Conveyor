@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import Field
 
+from conveyor.contracts import ContractSchemas
 from conveyor.model.base import ConfigModel
 from conveyor.model.checks import (
     AGENT_FILE,
@@ -35,19 +36,21 @@ class ValidationReport(ConfigModel):
 
 
 class _Validator:
-    """Validates agents and factories, checking each agent folder only once."""
+    """Validates agents and factories, checking each agent folder and contract only once."""
 
     def __init__(self) -> None:
         self.agents: dict[Path, Path] = {}
         self.factories: list[Path] = []
         self.issues: list[Issue] = []
+        # Shared by every agent checked, so a project's contract modules are imported once.
+        self.contracts = ContractSchemas()
 
     def agent(self, folder: Path) -> list[Issue]:
         key = folder.resolve()
         if key in self.agents:
             return []
         self.agents[key] = folder
-        return check_agent_folder(folder)
+        return check_agent_folder(folder, self.contracts)
 
     def add_agent(self, folder: Path) -> None:
         self.issues.extend(self.agent(folder))

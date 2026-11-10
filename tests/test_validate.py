@@ -11,6 +11,7 @@ from conveyor.model.checks import (
     agent_project_root,
     check_agent_folder,
     check_factory_file,
+    inspect_agent_folder,
     project_root,
 )
 from conveyor.model.errors import Issue, format_loc
@@ -346,3 +347,36 @@ def test_agent_check_reports_unparseable_files(tmp_path: Path) -> None:
     issues = check_agent_folder(folder)
 
     assert [(issue.line, issue.column) for issue in issues] == [(2, 1)]
+
+
+def test_a_project_imports_its_contract_module_once(tmp_path: Path) -> None:
+    # Importing it for each reference of each agent made validating 1,000 agents take 30 s.
+    (tmp_path / "contracts.py").write_text(
+        "from pathlib import Path\n"
+        "from pydantic import BaseModel\n"
+        "count = Path(__file__).with_name('imports.txt')\n"
+        "count.write_text(str(int(count.read_text()) + 1) if count.exists() else '1')\n"
+        "class A(BaseModel): ...\n"
+        "class B(BaseModel): ...\n"
+    )
+    for name in ("one", "two", "three"):
+        folder = tmp_path / "agents" / name
+        (folder / "evals").mkdir(parents=True)
+        (folder / "prompt.md").write_text("Do the work.\n")
+        (folder / "agent.yaml").write_text(
+            f"name: {name}\n"
+            "brief: {instructions: prompt.md, input: contracts.A, output: contracts.B}\n"
+            "capabilities: {model: {provider: openai, id: gpt}}\n"
+            "quality_gate: {suite: evals, min_pass_rate: 0.5}\n"
+        )
+
+    report = validate_path(tmp_path)
+
+    assert report.ok
+    assert len(report.agents) == 3
+    assert (tmp_path / "imports.txt").read_text() == "1"
+
+    # A single agent, as `conveyor agent publish` inspects it, imports the module once too.
+    inspection = inspect_agent_folder(tmp_path / "agents" / "one")
+    assert sorted(inspection.schemas) == ["contracts.A", "contracts.B"]
+    assert (tmp_path / "imports.txt").read_text() == "2"
