@@ -216,6 +216,25 @@ Lives in `/examples`. It exists to prove the infrastructure works end to end, no
 
 **Example outcome scoring (chosen by this factory's owner):** tests pass, the PR is approved, and a reviewer quality score.
 
+## Self-Hosting: Conveyor Builds Conveyor
+
+*Planned: starts once M5 lands.*
+
+The PRD → PR factory, pointed at this repository, builds Conveyor itself. An issue labelled `ready-for-build` goes in; a reviewed pull request comes out. It is the most direct test of the thesis: if the harness works, it can build the harness, and every pull request it opens carries the evidence of how it was made.
+
+**Why after M5.** M3 makes the factory runnable, but without M4's evals and M5's change sets a self-built pull request has no evidence behind it. From M5, *"I changed the implementer and Conveyor's own pull requests got better"* is a traceable claim rather than an impression.
+
+**Rules for the self-build factory**
+
+- **Build with a pinned release, never the code under change.** The factory runs on a released version of Conveyor installed from PyPI and works on a checkout of `main`. A run is never executed by the code it is changing. Upgrading the builder to a newer release is a deliberate, versioned step, the way a compiler bootstraps from a stable build.
+- **The factory cannot edit its own definition.** The self-build factory and its agents live outside the checkout they work on. The implementer's toolkit denies writes to CI workflows (`.github/`), agent settings and hooks (`.claude/`) and release automation. Changes on the repository's *Ask first* list in `AGENTS.md` (dependencies, the public CLI, configuration format or JSON Schemas, lint, type, test or CI configuration, accepted ADRs and `AGENTS.md` itself) are flagged at the human gate, the same way widened permissions are.
+- **GitHub access belongs to operations, not agents.** Fetching the issue, pushing the branch and opening the pull request are deterministic operations that hold the token. No agent's toolkit has network access or GitHub credentials.
+- **Validation runs the real checks.** The validation stage runs `make check` (lint, strict types, tests with 90% branch coverage, the UI build) in the sandbox, from an image with dependencies pre-installed from the lockfiles. Tests that need Docker, such as the Postgres storage tests, stay in normal CI, which runs on every self-built pull request like any other.
+- **It runs light.** The approval stage stays: a human reviews and merges every self-built pull request. Removing that gate is an owner decision made from recorded evidence, not a default.
+- **Spend is capped.** Each run has a spend limit, and the factory has a monthly budget.
+
+**Published evidence.** Each self-built pull request links to its run: the pinned agent versions, gate results, cost and change set. A public log of these pull requests is the project's running proof that the factory works and that changes to it can be measured.
+
 ## Illustrative Configuration
 
 ```yaml
@@ -312,6 +331,10 @@ conveyor/
 - OpenRouter as the default provider, with Anthropic and OpenAI available
 - The PRD → PR reference factory
 
+**Planned once M5 lands**
+
+- [Self-hosting](#self-hosting-conveyor-builds-conveyor): the PRD → PR factory building Conveyor's own pull requests
+
 **Not in the MVP**
 
 - Visual factory editors
@@ -326,6 +349,8 @@ conveyor/
 An engineer can define a factory, build specialised agents, connect them into a controlled pipeline, set a quality bar for each one, run the factory, scan what happened, change an agent, and see what that change did to the factory's output.
 
 For this project specifically, success is a public, reproducible example built to recognisable industry standards: the reference factory running end to end, and at least one change set with a traceable before and after across its diffs, its evals and the factory outcome.
+
+Once self-hosting starts, the stronger proof point: a Conveyor pull request built by Conveyor, reviewed and merged, with its run and change set published.
 
 Success is measured by the quality and reliability of what the factory produces, not by the number of agents or the volume of code generated.
 
