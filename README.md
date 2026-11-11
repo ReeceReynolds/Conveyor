@@ -109,6 +109,7 @@ run them yet.
 | Change sets: before and after for diffs, evals and factory outcome scores | Planned (M5) |
 | Run logs as OpenTelemetry traces, with per-call cost | Planned |
 | Local web interface (Factory Overview, Run Detail, Change Set Detail) | Planned (M6) |
+| [Self-hosting](docs/project-overview.md#self-hosting-conveyor-builds-conveyor): Conveyor builds its own pull requests through the PRD → PR factory | Planned (after M5) |
 
 Milestones are tracked in [`docs/plans/`](docs/plans/README.md); the full MVP scope is in the
 [project overview](docs/project-overview.md#scope).
