@@ -1,23 +1,41 @@
-# Conveyor
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/conveyor-logo-dark.svg">
+    <img src="docs/assets/conveyor-logo-light.svg" alt="Conveyor" height="72">
+  </picture>
+</h1>
 
-**Version your AI agents like code. See exactly what changed, and (soon) what it did to the output.**
+<p align="center"><strong>Humans set the sat nav. Agents drive the route.</strong></p>
 
-[![CI](https://github.com/ReeceReynolds/Conveyor/actions/workflows/ci.yml/badge.svg)](https://github.com/ReeceReynolds/Conveyor/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
+<p align="center">
+  Open-source harness engineering for AI software factories: define the process, version every
+  agent, gate each one on evals and measure what every change does to the output.
+</p>
 
-[Quickstart](#quickstart) · [Status and roadmap](#status) · [How it works](#how-it-works) ·
-[Overview](docs/project-overview.md) · [Example factory](examples/prd-to-pr/) ·
-[Discussions](https://github.com/ReeceReynolds/Conveyor/discussions)
+<p align="center">
+  <a href="https://github.com/ReeceReynolds/Conveyor/actions/workflows/ci.yml"><img src="https://github.com/ReeceReynolds/Conveyor/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.14-blue.svg" alt="Python 3.14"></a>
+</p>
+
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#status">Status and roadmap</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="docs/project-overview.md">Overview</a> ·
+  <a href="examples/prd-to-pr/">Example factory</a> ·
+  <a href="https://github.com/ReeceReynolds/Conveyor/discussions">Discussions</a>
+</p>
 
 You build a pipeline of agents. Someone tweaks a prompt or swaps a model, and nobody can say
 what that did downstream. Conveyor is open-source infrastructure for **harness engineering**:
-define an agent-driven software factory as plain files and version every agent, working
-towards answering one question with evidence:
+define an agent-driven software factory as plain files, give each agent one job and a quality
+bar, and answer one question with evidence:
 
 > **"I changed agent X. What did that do to the factory's output?"**
 
-Humans set the sat nav. Agents drive the route.
+Today Conveyor defines and versions factories; running them, evals and outcome tracking are
+next on the [roadmap](#status).
 
 <p align="center">
   <img src="docs/assets/agent-diff.svg" alt="Terminal session: publish the implementer agent, switch its model to openai/gpt-5, and conveyor agent diff reports 'Capabilities, model profile, model switched (anthropic/claude-sonnet → openai/gpt-5)'" width="760">
