@@ -35,6 +35,19 @@ from conveyor.storage.migrate import MIGRATIONS_DIR, alembic_config
 from conveyor.storage.schema import Base, UTCDateTime
 
 DIGEST = "0" * 64
+TABLES = [
+    "agent_versions",
+    "agents",
+    "alembic_version",
+    "artifacts",
+    "run_decisions",
+    "run_pins",
+    "runs",
+    "spans",
+    "stage_attempt_context",
+    "stage_attempts",
+]
+"""Every table at the head revision, sorted."""
 
 
 @pytest.fixture
@@ -86,10 +99,10 @@ def test_reopening_keeps_data_and_the_users_ignore_file(tmp_path: Path) -> None:
     assert ignore.read_text() == "edited\n"
 
 
-def test_migrations_create_the_registry_tables(engine: Engine) -> None:
-    assert _tables(engine) == ["agent_versions", "agents", "alembic_version"]
+def test_migrations_create_every_table(engine: Engine) -> None:
+    assert _tables(engine) == TABLES
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == _head() == "0001"
+        assert MigrationContext.configure(connection).get_current_revision() == _head() == "0002"
 
 
 def test_models_and_migrations_do_not_drift(engine: Engine) -> None:
@@ -107,7 +120,7 @@ def test_migrations_downgrade_and_upgrade_again(
 
     with Store.open_url(database_url, tmp_path / "objects"):
         pass
-    assert _tables(engine) == ["agent_versions", "agents", "alembic_version"]
+    assert _tables(engine) == TABLES
 
 
 def test_a_newer_schema_is_refused(tmp_path: Path) -> None:
@@ -281,7 +294,8 @@ def test_the_database_enforces_version_integrity(engine: Engine) -> None:
 
 def test_migrations_ship_inside_the_package() -> None:
     assert sorted(path.name for path in (MIGRATIONS_DIR / "versions").glob("*.py")) == [
-        "0001_registry_tables.py"
+        "0001_registry_tables.py",
+        "0002_run_tables.py",
     ]
     assert (MIGRATIONS_DIR / "env.py").is_file()
     assert (MIGRATIONS_DIR / "script.py.mako").is_file()
