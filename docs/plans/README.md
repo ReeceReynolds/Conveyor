@@ -21,3 +21,4 @@ the same, current version, and so changes to the plan are reviewed like code.
 | Milestone | Status |
 |---|---|
 | [2 — Agent registry and versioning](milestone-2-agent-registry.md) | Done |
+| [3 — Factory execution](milestone-3-factory-execution.md) | In progress |
