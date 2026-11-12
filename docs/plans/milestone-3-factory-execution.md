@@ -12,7 +12,7 @@ the orchestrator owns this file and records status here at every wave checkpoint
 
 | Work package | Wave | Branch | State |
 |---|---|---|---|
-| WP-00 Decision records (ADRs 0016–0024) | 0 | `docs/m3-decisions` | In progress |
+| WP-00 Decision records (ADRs 0016–0024) | 0 | `docs/m3-decisions` | Written and reviewed; PR open |
 | WP-01 Dependencies and layer contracts | 1 | `build/m3-dependencies` | Planned |
 | WP-02 Guarded migrations (F-05) | 1 | `fix/guarded-migrations` | Planned |
 | WP-03 Operation stage parameters | 1 | `feat/operation-stage-params` | Planned |
@@ -134,6 +134,23 @@ Two additions that execution needs and that are named here rather than pulled in
 | 8 | 0023 Layering | See below. | |
 | – | 0024 Guarded migrations | F-05: `pg_advisory_xact_lock` on the migrating connection plus a module lock around Alembic. Closes the gap ADR 0012 records; ADR 0012 is not edited. | |
 
+**Settled during wave 0** (owner's answers to questions the ADR review raised; recorded in
+ADRs 0016 and 0018):
+
+- **DBOS application version:** a constant owned by `conveyor.engine` (`conveyor-run-1`),
+  bumped only when the workflow's step order changes incompatibly. `approve`, `reject` and
+  `resume` refuse a run recorded under another version with a clear error.
+- **Resumed runs are dequeued only by their own driver:** each run has its own DBOS queue;
+  deciding sends the message, then resumes the workflow on that queue; a process listens only
+  to its run's queue, and the workflow's first step takes the run lock.
+- **Approving an escalation:** accepts the latest output of the rework loop and continues at
+  the stage after the one that escalated; the rejected attempt stays `rejected` and the human
+  override is recorded as a decision on the run (WP-04 holds it).
+- **Strict rework rules:** a stage with `on_reject` must output a required `decision` allowing
+  exactly `approve` and `reject`; `on_reject` on operation or gate stages is a preflight error
+  in M3; rework context carries only the latest iteration's artifacts; routing matches the
+  dotted contract reference (or a built-in contract's fully qualified name).
+
 **Layers after M3** (highest first), all new packages added to the `layers` contract at once:
 
 ```
@@ -187,7 +204,8 @@ green on its own. "Lines" is an estimate of non-test, non-generated lines. Seams
 - **WP-04 Run schema and records** (`feat/run-schema`, ~330 lines + generated migration). Owns
   `src/conveyor/storage/schema.py`, `storage/migrations/versions/0002_*.py`,
   `storage/records.py`, `tests/test_storage_store.py`, `tests/test_storage_run_schema.py`.
-  Tables: `runs`, `run_pins`, `stage_attempts`, `artifacts`, `spans`. Provides
+  Tables: `runs`, `run_pins`, `stage_attempts`, `artifacts`, `spans`, and `run_decisions`
+  (a person's gate or escalation decision, kept separate from stage attempts; ADR 0016). Provides
   `storage.records.{RunRecord, PinRecord, StageAttemptRecord, ArtifactRecord, SpanRecord,
   RunStatus, AttemptStatus}`. Acceptance: model/migration drift test on both backends;
   upgrade from `0001` keeps registry data. **Sole owner of the migration chain and `schema.py`
@@ -476,8 +494,9 @@ little lower than Linux (still expected above 90%).
   docstrings, owned paths). At each wave end the orchestrator stops, reports the PRs, what each verified,
   deviations and the next wave, updates the status table above, and waits for the owner to confirm
   the merge.
-- **Commit window.** No commit, push or PR before 18:15 UK on weekdays
-  (`TZ=Europe/London date`); earlier work stays uncommitted in its worktree.
+- **Commit window.** No commit, push or PR between 08:30 and 18:15 UK on weekdays
+  (`TZ=Europe/London date`); work finished inside that window stays uncommitted in its worktree
+  until it closes. Weekends have no window.
 - **Rules.** `AGENTS.md` in full; no force-push, `--no-verify`, hand-edited lockfiles or
   schemas; never weaken a check; anything beyond section 7 stops and asks.
 
