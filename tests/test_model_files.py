@@ -6,8 +6,16 @@ from pathlib import Path
 import pytest
 from inline_snapshot import snapshot
 
-from conveyor.model import Agent, ConfigError, Factory, load_agent_file, load_factory_file
+from conveyor.model import (
+    Agent,
+    ConfigError,
+    Factory,
+    OperationStage,
+    load_agent_file,
+    load_factory_file,
+)
 from conveyor.model.errors import format_loc
+from conveyor.model.loader import dump_yaml, parse_yaml, validate_factory_document
 
 
 def _errors(load: Callable[[Path], object], file: Path) -> list[tuple[str, str, str]]:
@@ -40,6 +48,29 @@ def test_valid_factory_loads() -> None:
 
     assert isinstance(factory, Factory)
     assert [stage.id for stage in factory.stages] == ["only"]
+
+
+@pytest.mark.usefixtures("in_fixtures")
+def test_operation_parameters_load_and_round_trip() -> None:
+    file = Path("factories/valid-operation-with.yaml")
+    factory = load_factory_file(file)
+    fetch, test, plain, empty = factory.stages
+
+    assert isinstance(fetch, OperationStage)
+    assert fetch.with_ == {"output": "contracts.PRD"}
+    assert isinstance(test, OperationStage)
+    assert test.with_ == {
+        "command": ("uv", "run", "pytest", "-q"),
+        "timeout_seconds": 600,
+        "env": {"CI": "1", "depth": {"levels": (1, 2.5, True, None)}},
+    }
+    assert isinstance(plain, OperationStage)
+    assert isinstance(empty, OperationStage)
+    assert plain.with_ == empty.with_ == {}
+    dumped = dump_yaml(factory)
+    assert "with_" not in dumped
+    assert dumped.count("with:") == 2, "an empty 'with' is a default, so it is not written"
+    assert validate_factory_document(parse_yaml(dumped, file)) == factory
 
 
 @pytest.mark.usefixtures("in_fixtures")
@@ -159,6 +190,28 @@ def test_invalid_factories_report_every_problem() -> None:
             "invalid-empty.yaml": [
                 ("3:9", "stages", "must list at least one item"),
                 ("5:12", "outcome.scorers", "must list at least one item"),
+            ],
+            "invalid-operation-with.yaml": [
+                ("6:5", "stages[0].with", "'with' is only allowed on operation stages"),
+                ("9:5", "stages[1].with", "'with' is only allowed on operation stages"),
+                ("12:11", "stages[2].with", "must be a mapping of parameters, got a list"),
+                ("15:11", "stages[3].with", "must be a mapping of parameters, got null"),
+                (
+                    "18:5",
+                    "stages[4].with",
+                    "must be a parameter name like 'timeout_seconds', got 2",
+                ),
+                (
+                    "19:7",
+                    "stages[4].with.timeoutSeconds",
+                    "must be a parameter name like 'timeout_seconds', got 'timeoutSeconds'",
+                ),
+                ("21:7", "stages[4].with.flag", "mapping keys must be strings, got true"),
+                ("25:14", "stages[5].with.limit", "must be a finite number, got .inf"),
+                ("26:14", "stages[5].with.floor", "must be a finite number, got -.inf"),
+                ("27:7", "stages[5].with.env", "mapping keys must be strings, got 1"),
+                ("28:25", "stages[5].with.command[1]", "must be a finite number, got .nan"),
+                ("31:5", "stages[6].with_", "unknown field"),
             ],
             "invalid-return-to.yaml": [
                 (

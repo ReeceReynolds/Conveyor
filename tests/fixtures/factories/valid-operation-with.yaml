@@ -1,0 +1,19 @@
+name: with-params
+trigger: { manual: true }
+stages:
+  - id: fetch
+    operation: fetch-prd
+    with: { output: contracts.PRD }
+  - id: test
+    operation: run-tests
+    with:
+      command: [uv, run, pytest, -q]
+      timeout_seconds: 600
+      env: { CI: "1", depth: { levels: [1, 2.5, true, null] } }
+  - id: plain
+    operation: run-tests
+  - id: empty
+    operation: run-tests
+    with: {}
+outcome:
+  scorers: [scorers.tests_pass]

@@ -1,0 +1,33 @@
+name: bad-with
+trigger: { manual: true }
+stages:
+  - id: build
+    agent: implementer
+    with: { output: contracts.PRD }
+  - id: approve
+    human_gate: true
+    with: { reason: why }
+  - id: not-a-mapping
+    operation: fetch-prd
+    with: [output, contracts.PRD]
+  - id: null-with
+    operation: fetch-prd
+    with: null
+  - id: bad-names
+    operation: run-tests
+    with:
+      timeoutSeconds: 600
+      2: two
+      flag: { true: yes }
+  - id: bad-values
+    operation: run-tests
+    with:
+      limit: .inf
+      floor: -.inf
+      env: { 1: one }
+      command: [pytest, .nan]
+  - id: python-name
+    operation: run-tests
+    with_: { timeout_seconds: 600 }
+outcome:
+  scorers: [scorers.tests_pass]

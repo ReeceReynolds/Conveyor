@@ -29,6 +29,9 @@ _MESSAGES = {
     "model_type": "must be a mapping of fields",
 }
 
+_KEY_ERRORS = frozenset({"extra_forbidden", "operation_only", "parameter_name", "parameter_key"})
+"""Error types about a key rather than its value, so they are positioned at the key."""
+
 _CORE = "tag:yaml.org,2002:"
 _MAP, _SEQ, _MERGE = f"{_CORE}map", f"{_CORE}seq", f"{_CORE}merge"
 _SCALAR_TAGS = frozenset(f"{_CORE}{name}" for name in ("str", "int", "float", "bool", "null"))
@@ -385,7 +388,7 @@ def _issue_from_error(document: Document, error: ErrorDetails) -> Issue:
             loc=loc,
             message=message,
         )
-    return document.issue(loc, message, of_key=error["type"] == "extra_forbidden")
+    return document.issue(loc, message, of_key=error["type"] in _KEY_ERRORS)
 
 
 def validate_document[M: ConfigModel](
@@ -408,7 +411,9 @@ def validate_document[M: ConfigModel](
         ConfigError: Listing every validation problem, each with its position.
     """
     try:
-        return model.model_validate(document.data)
+        # By alias only: a model may accept its Python field names (`with_`) from code, but a
+        # file must use the YAML keys (`with`).
+        return model.model_validate(document.data, by_name=False)
     except ValidationError as error:
         issues = [_issue_from_error(document, details) for details in error.errors()]
         reported = {(issue.loc, issue.message) for issue in issues}

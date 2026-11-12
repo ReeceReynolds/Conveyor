@@ -10,6 +10,7 @@ from typing import Annotated, Literal, NamedTuple, Self
 
 from pydantic import (
     BaseModel,
+    ConfigDict,
     Discriminator,
     Field,
     Tag,
@@ -17,13 +18,15 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import PydanticCustomError
 
-from conveyor.model.base import ConfigModel, RuleViolation, raise_violations
+from conveyor.model.base import ConfigModel, RuleViolation, custom_error, raise_violations
 from conveyor.model.types import (
     NON_EMPTY,
     UNIQUE,
     DottedRef,
+    Parameters,
     RatingScale,
     Slug,
     StrictBool,
@@ -71,7 +74,21 @@ class _StageBase(ConfigModel):
     )
 
 
-class AgentStage(_StageBase):
+class _NoParameters(_StageBase):
+    # Without this, `with:` on an agent or gate stage would be reported as just "unknown field".
+    # The field is never set: its validator always fails, and it is left out of the schema,
+    # the dump and the repr.
+    misplaced_with: SkipJsonSchema[None] = Field(
+        default=None, validation_alias="with", exclude=True, repr=False
+    )
+
+    @field_validator("misplaced_with", mode="before")
+    @classmethod
+    def _reject_parameters(cls, _value: object) -> None:
+        raise custom_error("operation_only", "'with' is only allowed on operation stages")
+
+
+class AgentStage(_NoParameters):
     """A stage worked by an agent."""
 
     agent: Slug = Field(description="Name of the agent, resolved to the folder agents/<name>/.")
@@ -80,10 +97,28 @@ class AgentStage(_StageBase):
 class OperationStage(_StageBase):
     """A deterministic step, such as fetching a file or running tests."""
 
+    # `with` is a Python keyword, so the attribute is `with_` and the YAML key its alias.
+    # Validating by name lets Python code construct the stage with `with_=...`.
+    model_config = ConfigDict(validate_by_name=True, serialize_by_alias=True)
+
     operation: Slug = Field(description="Name of the operation to run.")
+    with_: Parameters = Field(
+        default={},
+        validation_alias="with",
+        serialization_alias="with",
+        title="With",
+        description=(
+            "Parameters for the operation, checked against that operation's own parameters "
+            "before a run starts."
+        ),
+        examples=[
+            {"output": "contracts.PRD"},
+            {"command": ["pytest", "-q"], "timeout_seconds": 600},
+        ],
+    )
 
 
-class HumanGateStage(_StageBase):
+class HumanGateStage(_NoParameters):
     """A stage where a person approves or rejects the work."""
 
     human_gate: Literal[True] = Field(description="Marks the stage as a human gate.")
