@@ -20,7 +20,12 @@ classifiers = [
 ]
 dependencies = [
     "alembic>=1.20.1",
+    "dbos>=3.5",
+    "opentelemetry-exporter-otlp-proto-http>=1.45",
+    "opentelemetry-sdk>=1.45",
     "pydantic>=2.14.1",
+    "pydantic-ai-harness>=0.67",
+    "pydantic-ai-slim[anthropic,openai,openrouter]>=2.67",
     "rfc8785>=0.1.4",
     "ruamel-yaml>=0.19.1",
     "sqlalchemy>=2.1.6",
@@ -163,11 +168,15 @@ include_external_packages = true
 
 [[tool.importlinter.contracts]]
 id = "layers"
-name = "Layers: cli → registry → model | storage → contracts. Lower layers must not import higher ones; move shared code down a layer or pass it in."
+name = "Layers: cli → engine → runtime | sandbox | operations → observability → execution → registry → model | storage → contracts (ADR 0023). Lower layers must not import higher ones; move shared code down a layer or pass it in."
 type = "layers"
-# Parenthesised layers are optional: they keep the contract valid before milestone 2 adds them.
+# Parenthesised layers are optional: they keep the contract valid before the package exists.
 layers = [
     "conveyor.cli",
+    "(conveyor.engine)",
+    "(conveyor.runtime) | (conveyor.sandbox) | (conveyor.operations)",
+    "(conveyor.observability)",
+    "(conveyor.execution)",
     "(conveyor.registry)",
     "conveyor.model | (conveyor.storage)",
     "(conveyor.contracts)",
@@ -197,18 +206,61 @@ ignore_imports = [
 # conveyor.storage arrives with milestone 2; until then these ignores match nothing.
 unmatched_ignore_imports_alerting = "none"
 
+[[tool.importlinter.contracts]]
+id = "dbos-in-engine"
+name = "Only conveyor.engine may import dbos (ADR 0023). Put the durable workflow code in conveyor.engine and pass its results to other packages."
+type = "forbidden"
+source_modules = ["conveyor.*"]
+forbidden_modules = ["dbos"]
+ignore_imports = ["conveyor.engine -> dbos", "conveyor.engine.** -> dbos"]
+# conveyor.engine arrives with milestone 3; until then these ignores match nothing.
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+id = "agents-in-runtime-and-sandbox"
+name = "Only conveyor.runtime and conveyor.sandbox may import pydantic_ai or pydantic_ai_harness (ADR 0023). Depend on the conveyor.execution seams instead and let the CLI pass the implementation in."
+type = "forbidden"
+source_modules = ["conveyor.*"]
+forbidden_modules = ["pydantic_ai", "pydantic_ai_harness"]
+ignore_imports = [
+    "conveyor.runtime -> pydantic_ai",
+    "conveyor.runtime.** -> pydantic_ai",
+    "conveyor.runtime -> pydantic_ai_harness",
+    "conveyor.runtime.** -> pydantic_ai_harness",
+    "conveyor.sandbox -> pydantic_ai",
+    "conveyor.sandbox.** -> pydantic_ai",
+    "conveyor.sandbox -> pydantic_ai_harness",
+    "conveyor.sandbox.** -> pydantic_ai_harness",
+]
+# conveyor.runtime and conveyor.sandbox arrive with milestone 3; until then these match nothing.
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+id = "telemetry-in-observability"
+name = "Only conveyor.observability may import opentelemetry (ADR 0023). Use the conveyor.execution Telemetry seam, or take the tracing object from conveyor.observability."
+type = "forbidden"
+source_modules = ["conveyor.*"]
+forbidden_modules = ["opentelemetry"]
+ignore_imports = [
+    "conveyor.observability -> opentelemetry",
+    "conveyor.observability.** -> opentelemetry",
+]
+# conveyor.observability arrives with milestone 3; until then these ignores match nothing.
+unmatched_ignore_imports_alerting = "none"
+
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
 # No network in tests (pytest-socket); a test that genuinely needs a socket opts in with
 # @pytest.mark.enable_socket. pytest-randomly shuffles the order on every run. Postgres tests
-# need Docker and run only in their own CI job (`-m postgres`; ADR 0012).
+# need Docker and run only in their own CI job (`-m postgres`; ADR 0012), as do other tests that
+# need a Docker daemon (`-m docker`).
 addopts = [
     "--strict-markers",
     "--strict-config",
     "-ra",
     "-m",
-    "not live and not postgres",
+    "not live and not postgres and not docker",
     "--disable-socket",
     "--allow-unix-socket",
 ]
@@ -218,6 +270,7 @@ filterwarnings = ["error"]
 markers = [
     "live: calls real model providers; excluded by default and run nightly with a spend cap",
     "postgres: runs against Postgres in a testcontainer; excluded by default, run in CI's Postgres job",
+    "docker: needs a Docker daemon; excluded by default, run in CI's Docker job",
 ]
 
 [tool.coverage.run]
