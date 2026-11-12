@@ -25,6 +25,16 @@ Schemas. It knows nothing about the CLI, storage or running agents.
 - Only `loader.py` touches ruamel.yaml (ADR 0009). It rejects duplicate keys, explicit tags,
   merge keys and recursive aliases, caps alias expansion (`MAX_VALUES`) and reports nesting
   too deep to read instead of crashing.
+- A YAML key that is a Python keyword gets a trailing underscore in Python and the key as its
+  `validation_alias` and `serialization_alias` (`OperationStage.with_` is `with:`), with
+  `validate_by_name` so code can pass `with_=...`. The loader validates by alias only
+  (`by_name=False`), so a file cannot use the Python name `with_`.
+- Free-form values, such as an operation's parameters, hold sequences as tuples. Their mappings
+  are typed as read-only `Mapping`s but are `dict`s at runtime: never mutate them.
+  `conveyor.model` checks only that the values are JSON-representable; the code that uses them
+  validates their meaning.
+- Operation stages hold their parameters in a dict, so stages and factories are not hashable:
+  never use them as dict keys or set members.
 - Checks that read the filesystem (agent folders, referenced agents) live in `checks.py`, not in
   the models: a model instance is valid on its own; whether its files exist is a separate check.
 
@@ -40,9 +50,9 @@ drift). Changing the configuration format or the schemas needs the human's appro
 |---|---|
 | `__init__.py` | The public API; re-exports models, errors, loaders and `validate_path` |
 | `base.py` | `ConfigModel`, `Loc`, `RuleViolation`, `custom_error`, `raise_violations` |
-| `types.py` | Constrained primitives (patterns, unique and non-empty tuples, relative paths) |
+| `types.py` | Constrained primitives (patterns, unique and non-empty tuples, relative paths, operation `Parameters`) |
 | `agent.py` | `Agent` and its blocks: `Brief`, `Capabilities` (`ModelProfile`, `Routing`, `Permissions`), `QualityGate` |
-| `factory.py` | `Factory`, stage kinds, `Trigger`, `OnReject`, `Outcome`/scorers, stage-graph rules |
+| `factory.py` | `Factory`, stage kinds (an operation's `with:` parameters), `Trigger`, `OnReject`, `Outcome`/scorers, stage-graph rules |
 | `errors.py` | `Issue`, `ConfigError` (carries every issue, sorted), `format_loc` |
 | `loader.py` | YAML parsing with positions (`Document`), model validation into issues, `dump_yaml` |
 | `checks.py` | Agent folder checks and factory → agent reference checks |

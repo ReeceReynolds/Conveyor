@@ -76,3 +76,47 @@ def test_raw_agent_references_skip_unreadable_stages() -> None:
 
     assert raw_agent_references(data) == [(0, "good")]
     assert raw_agent_references({"stages": "no"}) == []
+
+
+def test_operation_parameters_are_held_as_tuples() -> None:
+    data = {"id": "test", "operation": "run-tests", "with": {"command": ["pytest", "-q"]}}
+
+    stage = OperationStage.model_validate(data)
+
+    assert stage.with_ == {"command": ("pytest", "-q")}
+    assert stage == OperationStage(id="test", operation="run-tests", with_=stage.with_)
+
+
+@pytest.mark.parametrize(
+    ("parameters", "message"),
+    [
+        ({"x": object()}, "must be a string, number, boolean, null, list or mapping, got 'object'"),
+        ({("a", "b"): 1}, "must be a parameter name like 'timeout_seconds', got a tuple"),
+        ("text", "must be a mapping of parameters, got 'text'"),
+    ],
+)
+def test_operation_parameters_must_be_json_values(parameters: object, message: str) -> None:
+    with pytest.raises(ValidationError) as caught:
+        OperationStage.model_validate({"id": "test", "operation": "run", "with": parameters})
+
+    assert [error["msg"] for error in caught.value.errors()] == [message]
+
+
+def test_parameters_are_only_allowed_on_operation_stages() -> None:
+    with pytest.raises(ValidationError, match="'with' is only allowed on operation stages"):
+        AgentStage.model_validate({"id": "work", "agent": "worker", "with": {}})
+
+
+def test_factory_has_a_serialization_schema_with_parameters() -> None:
+    stage = Factory.model_json_schema(mode="serialization")["$defs"]["OperationStage"]
+
+    assert stage["properties"]["with"]["additionalProperties"] is False
+    assert stage["properties"]["with"]["default"] == {}
+
+
+def test_operation_parameters_serialize_as_json() -> None:
+    data = {"id": "test", "operation": "run", "with": {"command": ["pytest", "-q"]}}
+
+    stage = OperationStage.model_validate(data)
+
+    assert stage.model_dump(mode="json") == {**data, "on_reject": None}

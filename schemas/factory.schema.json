@@ -170,6 +170,30 @@
           "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
           "title": "Operation",
           "type": "string"
+        },
+        "with": {
+          "additionalProperties": false,
+          "default": {},
+          "description": "Parameters for the operation, checked against that operation's own parameters before a run starts.",
+          "examples": [
+            {
+              "output": "contracts.PRD"
+            },
+            {
+              "command": [
+                "pytest",
+                "-q"
+              ],
+              "timeout_seconds": 600
+            }
+          ],
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "$ref": "#/$defs/ParameterValue"
+            }
+          },
+          "title": "With",
+          "type": "object"
         }
       },
       "required": [
@@ -207,6 +231,37 @@
       ],
       "title": "Outcome",
       "type": "object"
+    },
+    "ParameterValue": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/ParameterValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/ParameterValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "Trigger": {
       "additionalProperties": false,

@@ -34,8 +34,10 @@ from conveyor.model.types import (
     DOTTED_REF_PATTERN,
     ENV_VAR_PATTERN,
     NO_SPACE_PATTERN,
+    PARAMETER_NAME_PATTERN,
     SLUG_PATTERN,
     TOOL_NAME_PATTERN,
+    ParameterValue,
 )
 
 FILE = Path("generated.yaml")
@@ -57,6 +59,24 @@ no_space = (
     .map("".join)
     .filter(lambda text: re.fullmatch(NO_SPACE_PATTERN, text) is not None)
 )
+parameter_names = st.tuples(st.sampled_from("abz"), st.text("az09_", max_size=6)).map("".join)
+# Controls are excluded: the dumper cannot round-trip U+0085 (NEL), which YAML reads as a break.
+_texts = st.text(st.characters(exclude_categories=("Cc", "Cs")), max_size=8)
+_scalars: st.SearchStrategy[ParameterValue] = (
+    _texts
+    | st.integers()
+    | st.floats(allow_nan=False, allow_infinity=False)
+    | st.booleans()
+    | st.none()
+)
+parameter_values: st.SearchStrategy[ParameterValue] = st.recursive(
+    _scalars,
+    lambda children: (
+        st.lists(children, max_size=3).map(tuple) | st.dictionaries(_texts, children, max_size=3)
+    ),
+    max_leaves=8,
+)
+parameters = st.dictionaries(parameter_names, parameter_values, max_size=3)
 relative_paths = st.lists(
     st.from_regex(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,8}", fullmatch=True).filter(
         lambda part: part not in {".", ".."}
@@ -124,7 +144,10 @@ def factories(draw: st.DrawFn) -> Factory:
         if kind == "agent":
             stages.append(AgentStage(id=stage_id, agent=draw(slugs), on_reject=on_reject))
         elif kind == "operation":
-            stages.append(OperationStage(id=stage_id, operation=draw(slugs), on_reject=on_reject))
+            stage = OperationStage(
+                id=stage_id, operation=draw(slugs), on_reject=on_reject, with_=draw(parameters)
+            )
+            stages.append(stage)
         else:
             stages.append(HumanGateStage(id=stage_id, human_gate=True, on_reject=on_reject))
     scales = st.tuples(st.integers(0, 9), st.integers(1, 10)).filter(lambda b: b[0] < b[1])
@@ -147,7 +170,12 @@ def factories(draw: st.DrawFn) -> Factory:
 
 
 @pytest.mark.parametrize(
-    ("strategy", "pattern"), [(slugs, SLUG_PATTERN), (dotted_refs, DOTTED_REF_PATTERN)]
+    ("strategy", "pattern"),
+    [
+        (slugs, SLUG_PATTERN),
+        (dotted_refs, DOTTED_REF_PATTERN),
+        (parameter_names, PARAMETER_NAME_PATTERN),
+    ],
 )
 @given(data=st.data())
 def test_strategies_match_pattern(
