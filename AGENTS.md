@@ -19,7 +19,7 @@ measure how changes affect the factory's output.
 | See the current milestone and its work packages | [`docs/plans/`](docs/plans/README.md) |
 | Work in a folder with local rules | [`src/conveyor/model/`](src/conveyor/model/AGENTS.md), [`tests/`](tests/AGENTS.md), [`ui/`](ui/AGENTS.md), [`examples/prd-to-pr/`](examples/prd-to-pr/AGENTS.md) (each `AGENTS.md`) |
 | Know why a tool or design was chosen | [`docs/adr/`](docs/adr/README.md) |
-| Follow a procedure step by step | `.claude/skills/<name>/SKILL.md`: [`add-adr`](.claude/skills/add-adr/SKILL.md), [`add-config-rule`](.claude/skills/add-config-rule/SKILL.md), [`add-package`](.claude/skills/add-package/SKILL.md), [`ship-change`](.claude/skills/ship-change/SKILL.md) |
+| Follow a procedure step by step | `.claude/skills/<name>/SKILL.md`: [`add-adr`](.claude/skills/add-adr/SKILL.md), [`add-config-rule`](.claude/skills/add-config-rule/SKILL.md), [`add-package`](.claude/skills/add-package/SKILL.md), [`review-change`](.claude/skills/review-change/SKILL.md), [`ship-change`](.claude/skills/ship-change/SKILL.md) |
 
 Skills are plain Markdown; any agent can read and follow them.
 
